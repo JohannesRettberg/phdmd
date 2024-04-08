@@ -35,6 +35,10 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[tool.setuptools]
+packages = ["phdmd"]
+package-dir = {"" = "src"}
+
 [project.urls]
 Homepage = "https://github.com/Jonas-Nicodemus/phdmd"
 Issues = "https://github.com/Jonas-Nicodemus/phdmd/issues"
