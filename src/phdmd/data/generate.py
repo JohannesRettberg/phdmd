@@ -4,7 +4,7 @@ import os
 import numpy as np
 
 import config
-from discretization.discretization import discretize
+from phdmd.discretization.discretization import discretize
 
 from pymor.algorithms.to_matrix import to_matrix
 

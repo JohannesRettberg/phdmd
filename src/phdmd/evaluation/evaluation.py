@@ -3,8 +3,8 @@ import logging
 import numpy as np
 
 import config
-from data.generate import sim
-from utils.plotting import plot
+from phdmd.data.generate import sim
+from phdmd.utils.plotting import plot
 
 
 def h_norm(lti_ref, lti_approx, label, compute_hinf=True):

@@ -2,9 +2,9 @@ import logging
 
 import numpy as np
 
-from algorithm.skew_procrustes import skew_procrustes
-from linalg.definiteness import project_spsd
-from linalg.symmetric import skew
+from phdmd.algorithm.skew_procrustes import skew_procrustes
+from phdmd.linalg.definiteness import project_spsd
+from phdmd.linalg.symmetric import skew
 
 
 def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5, delta=1e-12):

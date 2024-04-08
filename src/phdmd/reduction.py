@@ -13,11 +13,11 @@ from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.reductors.basic import LTIPGReductor
 from pymor.basic import project
 
-import config
+from phdmd import config
 
-from data.generate import generate
-from evaluation.evaluation import h_norm
-from utils.plotting import plot
+from phdmd.data.generate import generate
+from phdmd.evaluation.evaluation import h_norm
+from phdmd.utils.plotting import plot
 
 
 def main():

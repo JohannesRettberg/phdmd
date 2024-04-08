@@ -1,6 +1,6 @@
 import numpy as np
 
-from linalg.symmetric import is_sym, sym
+from phdmd.linalg.symmetric import is_sym, sym
 
 
 def is_spsd(A):

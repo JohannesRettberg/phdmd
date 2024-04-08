@@ -1,6 +1,6 @@
-from algorithm.dmd import iodmd, operator_inference
-from algorithm.phdmd import phdmd
-from utils.system import to_lti, to_phlti
+from phdmd.algorithm.dmd import iodmd, operator_inference
+from phdmd.algorithm.phdmd import phdmd
+from phdmd.utils.system import to_lti, to_phlti
 
 
 class Method:

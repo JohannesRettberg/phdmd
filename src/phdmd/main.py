@@ -1,9 +1,9 @@
 import logging
 import os
 
-import config
-from data.generate import generate
-from evaluation.evaluation import evaluate
+from phdmd import config
+from phdmd.data.generate import generate
+from phdmd.evaluation.evaluation import evaluate
 
 
 def main():

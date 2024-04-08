@@ -6,9 +6,9 @@ import matplotlib as mpl
 from scipy.signal import sawtooth
 from pymor.models.iosys import PHLTIModel, LTIModel
 
-from algorithm.methods import IODMDMethod, PHDMDMethod, OIMethod
-from model.msd import msd
-from model.poro import poro
+from phdmd.algorithm.methods import IODMDMethod, PHDMDMethod, OIMethod
+from phdmd.model.msd import msd
+from phdmd.model.poro import poro
 
 
 class Experiment:
