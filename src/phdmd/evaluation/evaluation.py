@@ -65,7 +65,7 @@ def h_norm(lti_ref, lti_approx, label, compute_hinf=True):
     return h2_norms, hinf_norms
 
 
-def evaluate(exp, lti_dict):
+def evaluate(exp, lti_dict, compute_hinf=True):
     """
     Evaluate the experiment for given approximated systems.
     Generates plots and computes the H2 and (optional) Hinf norm of the error.
@@ -102,6 +102,7 @@ def evaluate(exp, lti_dict):
 
             lti_error_list.append(lti_error)
 
+    repeat_time_values = int(X.shape[1]/exp.T_test.shape[0])
     # Trajectories
     # plot(exp.T_test, U, label='$u$', ylabel='Input', xlabel='Time (s)', legend='upper right',
     #      fraction=config.fraction, name=exp.name + '_testing_input')
@@ -109,15 +110,15 @@ def evaluate(exp, lti_dict):
     ls = len(labels) * ['--']
     ls[0] = '-'
     testing_output_labels = ['$y$', *[r'$\widetilde{y}_{\mathrm{' + l + '}}$' for l in labels[1:]]]
-    plot(exp.T_test, Y_list, label=testing_output_labels, c=config.colors, xlabel='Time',
+    plot(np.tile(exp.T_test,(repeat_time_values,1)).ravel(), Y_list, label=testing_output_labels, c=config.colors, xlabel='Time',
          # ylim=[-1.5, 0.5],
          ylabel='Testing output', name=f'{exp.name}_testing_output', ls=ls, fraction=config.fraction)
 
     # Absolute Error of the trajectories
-    plot(exp.T_test, Y_error_list, label=labels[1:], c=config.colors[1:], yscale='log', xlabel='Time',
+    plot(np.tile(exp.T_test,(repeat_time_values,1)).ravel(), Y_error_list, label=labels[1:], c=config.colors[1:], yscale='log', xlabel='Time',
          ylabel='Absolute error',
          name=f'{exp.name}_abs_error', fraction=config.fraction)
 
     # H-norm calculation fails for the poro benchmark system
     if exp.model != 'poro':
-        h_norm(lti_list[0], lti_list[1:], labels[1:])
+        h_norm(lti_list[0], lti_list[1:], labels[1:], compute_hinf=compute_hinf)
