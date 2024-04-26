@@ -80,6 +80,18 @@ def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5
         U = 1 / 2 * (U[:, 1:] + U[:, :-1])
         Y = 1 / 2 * (Y[:, 1:] + Y[:, :-1])
 
+    # TODO: remove this part
+    from matplotlib import pyplot as plt
+    plt.figure
+    plt.title(f"X_red")
+    plt.plot(np.transpose(X[:5,:]))
+    plt.savefig("X_train_in_phdmd.png")
+
+    plt.figure
+    plt.title("dXdt_red")
+    plt.plot(np.transpose(dXdt[:5,:]))
+    plt.savefig("dXdt_train_in_phdmd.png")
+
     if H is None:
         H = np.eye(X.shape[0])
 
