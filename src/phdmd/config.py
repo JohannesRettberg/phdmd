@@ -169,16 +169,24 @@ experiments = [siso_msd_exp, siso_msd_exp_1, siso_msd_exp_2, siso_msd_exp_3, sis
 # experiments = [mimo_msd_exp]
 # experiments = [poro_exp]
 
-save_results = False  # If true all figures will be saved as pdf
+save_results = True  # If true all figures will be saved as pdf
 width_pt = 420  # Get this from LaTeX using \the\textwidth
 fraction = 0.49 if save_results else 1  # Fraction of width the figure will occupy
 plot_format = 'pdf'
 
 colors = np.array(mpl.colormaps['Set1'].colors)
+# delete yello
+colors = np.delete(colors,(5),axis=0)
 
-plots_path = os.path.join('../plots')
-data_path = os.path.join('../data')
+working_dir = os.path.dirname(__file__)
+plots_path = os.path.join(working_dir,'../plots')
+data_path = os.path.join(working_dir,'../data')
 simulations_path = os.path.join(data_path, 'simulations')
 evaluations_path = os.path.join(data_path, 'evaluations')
 
-force_simulation = False  # If true the simulation will be forced to run again
+# create paths if they do not exist
+for path in [plots_path, data_path, simulations_path, evaluations_path]:
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+force_simulation = True  # If true the simulation will be forced to run again
