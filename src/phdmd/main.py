@@ -5,6 +5,8 @@ from phdmd import config
 from phdmd.data.generate import generate
 from phdmd.evaluation.evaluation import evaluate
 
+import cProfile
+import pstats
 
 def main():
     logging.basicConfig()
@@ -46,6 +48,18 @@ def main():
         logging.info('Evaluate')
         evaluate(exp, lti_dict)
 
+def profile_run(code_name_string='main()'):
+    prof = cProfile.Profile()
+    prof.run(code_name_string)
+    prof.sort_stats('cumtime')
+    prof.dump_stats(f'profile_output_{code_name_string}.prof')
+
+    stream = open(f'profile_output_{code_name_string}.txt', 'w')
+    stats = pstats.Stats(f'profile_output_{code_name_string}.prof', stream=stream)
+    stats.sort_stats('cumtime')
+    stats.print_stats()
+
 
 if __name__ == "__main__":
-    main()
+    profile_run('main()')
+    print('debug stop')
