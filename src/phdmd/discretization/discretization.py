@@ -1,4 +1,6 @@
 import numpy as np
+import scipy
+import time
 
 from tqdm import tqdm
 
@@ -40,16 +42,62 @@ def discretize(lti, U, T, x0, method='implicit_midpoint', return_dXdt=False):
     # if isinstance(lti, PHLTIModel):
     #     lti = lti.to_lti()
 
-    match method:
-        case 'implicit_midpoint':
-            return implicit_midpoint(lti, U, T, x0, return_dXdt)
-        case 'explicit_euler':
-            return explicit_euler(lti, U, T, x0, return_dXdt)
-        case 'explicit_midpoint':
-            return explicit_midpoint(lti, U, T, x0, return_dXdt)
-        case _:
-            return scipy_solve_ivp(lti, U, T, x0, method, return_dXdt)
+    if isinstance(U,list):
+        U_is_list = True
+        n_scenarios = len(U)
+        U_temp = U.copy()[0] 
+        U_list = U.copy()                
+    else:
+        U_is_list = False
+        U_temp = U
+        n_scenarios = 1
 
+    if not isinstance(U_temp, np.ndarray):
+        n_u = U_temp(T).shape[0]
+        if U_temp(T).ndim < 2:
+            n_u = 1
+    else:
+        n_u = U_temp.shape[0]
+
+    if return_dXdt:
+        X = np.zeros((lti.order, len(T),n_scenarios))
+        U = np.zeros((n_u, len(T), n_scenarios))
+        Y = np.zeros((n_u, len(T), n_scenarios))
+        dXdt = np.zeros((lti.order, len(T),n_scenarios))
+    else:
+        X = np.zeros((lti.order, len(T),n_scenarios))
+        U = np.zeros((n_u, len(T), n_scenarios))
+        Y = np.zeros((n_u, len(T), n_scenarios))
+    for i_scenario in range(n_scenarios):
+        if U_is_list:
+            U_temp = U_list[i_scenario]
+        else:
+            pass # keep U_temp
+        match method:
+            case 'implicit_midpoint':
+                if return_dXdt:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                else:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+            case 'explicit_euler':
+                if return_dXdt:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  explicit_euler(lti, U_temp, T, x0, return_dXdt)
+                else:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  explicit_euler(lti, U_temp, T, x0, return_dXdt)
+            case 'explicit_midpoint':
+                if return_dXdt:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                else:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+            case _:
+                if return_dXdt:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
+                else:
+                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
+    if return_dXdt:
+        return np.reshape(np.transpose(U,(0,2,1)),(n_u,len(T)*n_scenarios)),np.reshape(np.transpose(X,(0,2,1)),(lti.order,len(T)*n_scenarios)), np.reshape(np.transpose(Y,(0,2,1)),(n_u,len(T)*n_scenarios)), np.reshape(np.transpose(dXdt,(0,2,1)),(lti.order,len(T)*n_scenarios))
+    else:
+        return np.reshape(np.transpose(U,(0,2,1)),(n_u,len(T)*n_scenarios)),np.reshape(np.transpose(X,(0,2,1)),(lti.order,len(T)*n_scenarios)), np.reshape(np.transpose(Y,(0,2,1)),(n_u,len(T)*n_scenarios))
 
 def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
     """
@@ -94,11 +142,27 @@ def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
     D = to_matrix(lti.D, format='dense')
 
     X = np.zeros((lti.order, len(T)))
-    X[:, 0] = x0
+    X[:, 0] = x0.ravel()
 
+    
+    M_issparse = scipy.sparse.issparse(M) 
+    # LU decomposition  
+    if M_issparse:
+        if M.getformat() == 'csr':
+            # convert to csc to prevent splu giving a warning 
+            M = scipy.sparse.csc_matrix(M)
+        invM_sparse = scipy.sparse.linalg.splu(M)
+    else:
+        lu_dense, piv_dense = scipy.linalg.lu_factor(M)
+        # AA as matrix lead to errors in matrix multiplication AA of shape (n,k) and X[:,i] of shape (k,) lead to shape (1,n) 
+        AA = np.array(AA)
+    
     for i in tqdm(range(len(T) - 1)):
         U_midpoint = 1 / 2 * (U[:, i] + U[:, i + 1])
-        X[:, i + 1] = np.linalg.solve(M, AA @ X[:, i] + delta * B @ U_midpoint)
+        if M_issparse:
+            X[:, i + 1] = invM_sparse.solve(AA @ X[:, i] + delta * B @ U_midpoint)
+        else:
+            X[:, i + 1] = scipy.linalg.lu_solve((lu_dense, piv_dense), AA @ X[:, i] + delta * B @ U_midpoint)
 
     Y = C @ X + D @ U
 
@@ -108,6 +172,45 @@ def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
         dXdt = np.linalg.solve(E, A @ X + B @ U)
         return U, X, Y, dXdt
 
+    # import time
+    # import scipy
+    # M_dense = M.todense()
+    # M_array = M.toarray()
+    # lu_dense, piv_dense = scipy.linalg.lu_factor(M_array)
+    # invM_sparse = scipy.sparse.linalg.splu(M)
+    # start = time.time()
+    # X[:, i + 1] = scipy.sparse.linalg.spsolve(M, AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'Scipy sparse solve approach takes {end - start} s and result is {X[:, i + 1]}')
+    # start = time.time()
+    # X[:, i + 1] = scipy.linalg.solve(M_dense, AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'Scipy linalg approach with dense matrix takes {end - start} s and result is {X[:, i + 1]}')
+    # start = time.time()
+    # X[:, i + 1] = scipy.linalg.solve(M_array, AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'Scipy linalg approach with np array takes {end - start} s and result is {X[:, i + 1]}')
+    # # start = time.time()
+    # # X[:, i + 1] = np.linalg.solve(M, AA @ X[:, i] + delta * B @ U_midpoint)
+    # # end = time.time()
+    # # print(end - start)
+    # start = time.time()
+    # X[:, i + 1] = np.linalg.solve(M_dense, AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'Numpy linalg approach with dense matrix takes {end - start} s and result is {X[:, i + 1]}')
+    # start = time.time()
+    # X[:, i + 1] = np.linalg.solve(M_array, AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'Numpy linalg approach with np array takes {end - start} s and result is {X[:, i + 1]}') 
+    # start = time.time()
+    # X[:, i + 1] = scipy.linalg.lu_solve((lu_dense, piv_dense), AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'LU solve approach with np array takes {end - start} s and result is {X[:, i + 1]}') 
+    # start = time.time()
+    # X[:, i + 1] = invM_sparse.solve(AA @ X[:, i] + delta * B @ U_midpoint)
+    # end = time.time()
+    # print(f'LU solve approach with sparse matrix takes {end - start} s and result is {X[:, i + 1]}') 
+    
 
 def explicit_euler(lti, U, T, x0, return_dXdt=False):
     """

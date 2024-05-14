@@ -205,6 +205,8 @@ fraction = 0.49 if save_results else 1  # Fraction of width the figure will occu
 plot_format = 'pdf'
 
 colors = np.array(mpl.colormaps['Set1'].colors)
+# delete yello
+colors = np.delete(colors,(5),axis=0)
 
 # create relative paths from config file
 working_dir = os.path.dirname(__file__)

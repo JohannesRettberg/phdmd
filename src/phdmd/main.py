@@ -8,6 +8,8 @@ from phdmd.evaluation.evaluation import evaluate
 from phdmd.linalg.definiteness import project_spsd, project_spd
 from phdmd.utils.preprocess_data import get_Riccati_transform, get_initial_energy_matrix, perturb_initial_energy_matrix
 
+import cProfile
+import pstats
 from pymor.models.iosys import PHLTIModel, LTIModel
 
 def main():
@@ -62,6 +64,18 @@ def main():
         logging.info('Evaluate')
         evaluate(exp, lti_dict, compute_hinf=False)
 
+def profile_run(code_name_string='main()'):
+    prof = cProfile.Profile()
+    prof.run(code_name_string)
+    prof.sort_stats('cumtime')
+    prof.dump_stats(f'profile_output_{code_name_string}.prof')
+
+    stream = open(f'profile_output_{code_name_string}.txt', 'w')
+    stats = pstats.Stats(f'profile_output_{code_name_string}.prof', stream=stream)
+    stats.sort_stats('cumtime')
+    stats.print_stats()
+
 
 if __name__ == "__main__":
-    main()
+    profile_run('main()')
+    print('debug stop')

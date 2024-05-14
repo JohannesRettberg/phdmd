@@ -43,9 +43,9 @@ class PHDMDMethod(Method):
     def __init__(self):
         super().__init__('pHDMD')
 
-    def __call__(self, X, Y, U, delta_t, H, use_Berlin = None, Q=None):
+    def __call__(self, X, Y, U, delta_t, H, dXdt=None, use_Berlin = None, Q=None):
         n = X.shape[0]
-        J, R, e = phdmd(X, Y, U, delta_t=delta_t, H=H)
+        J, R, e = phdmd(X, Y, U, delta_t=delta_t, H=H, dXdt=dXdt)
         phlti = to_phlti(J, R, n=n, E=H, no_feedtrough=True)
 
         return phlti

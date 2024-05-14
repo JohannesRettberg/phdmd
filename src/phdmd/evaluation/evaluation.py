@@ -102,6 +102,7 @@ def evaluate(exp, lti_dict, compute_hinf = True):
 
             lti_error_list.append(lti_error)
 
+    repeat_time_values = int(X.shape[1]/exp.T_test.shape[0])
     # Trajectories
     # plot(exp.T_test, U, label='$u$', ylabel='Input', xlabel='Time (s)', legend='upper right',
     #      fraction=config.fraction, name=exp.name + '_testing_input')
@@ -129,7 +130,7 @@ def evaluate(exp, lti_dict, compute_hinf = True):
          ylabel='Testing output', name=f'{exp.name}_testing_output{add_plot_name}', ls=ls, fraction=config.fraction)
 
     # Absolute Error of the trajectories
-    plot(exp.T_test, Y_error_list, label=labels[1:], c=config.colors[1:], yscale='log', xlabel='Time',
+    plot(np.tile(exp.T_test,(repeat_time_values,1)).ravel(), Y_error_list, label=labels[1:], c=config.colors[1:], yscale='log', xlabel='Time',
          ylabel='Absolute error',
          name=f'{exp.name}_abs_error{add_plot_name}', fraction=config.fraction)
 

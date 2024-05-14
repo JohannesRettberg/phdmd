@@ -93,7 +93,7 @@ def sim_disc(lti_disc, U, x0):
     return U, X, Y
 
 
-def generate(exp):
+def generate(exp, return_dXdt=False):
     """
     Generate or load training data for a given experiment.
 
@@ -113,21 +113,32 @@ def generate(exp):
     """
     if not os.path.exists(config.simulations_path + '/' + exp.name + '_sim.npz') or config.force_simulation:
         logging.info('Simulate FOM')
-        U_train, X_train, Y_train = sim(exp.fom, exp.u, exp.T, exp.x0,
-                                        method=exp.time_stepper)
-        np.savez(os.path.join(config.simulations_path, exp.name + '_sim'),
-                 U_train=U_train, X_train=X_train, Y_train=Y_train)
+        if return_dXdt:
+            U_train, X_train, Y_train, dXdt_train = sim(exp.fom, exp.u, exp.T, exp.x0,
+                                            method=exp.time_stepper,return_dXdt=return_dXdt)
+            np.savez(os.path.join(config.simulations_path, exp.name + '_sim'),
+                    U_train=U_train, X_train=X_train, Y_train=Y_train, dXdt_train=dXdt_train)
+        else:
+            U_train, X_train, Y_train = sim(exp.fom, exp.u, exp.T, exp.x0,
+                                            method=exp.time_stepper,return_dXdt=return_dXdt)
+            np.savez(os.path.join(config.simulations_path, exp.name + '_sim'),
+                    U_train=U_train, X_train=X_train, Y_train=Y_train)
     else:
         logging.info('Load training data')
         npzfile = np.load(os.path.join(config.simulations_path, exp.name + '_sim.npz'))
         U_train = npzfile['U_train']
         X_train = npzfile['X_train']
         Y_train = npzfile['Y_train']
-
+        if return_dXdt:
+            dXdt_train = npzfile['dXdt_train']
     if exp.noise is not None:
         logging.info(f'Noise: {exp.noise:.2e}')
         np.random.seed(42)
         X_train += exp.noise * np.random.standard_normal(size=X_train.shape)
         Y_train += exp.noise * np.random.standard_normal(size=Y_train.shape)
-
-    return X_train, Y_train, U_train
+        if return_dXdt:
+            dXdt_train += exp.noise * np.random.standard_normal(size=dXdt_train.shape)
+    if return_dXdt:
+        return  X_train, Y_train, U_train, dXdt_train
+    else:
+        return X_train, Y_train, U_train
