@@ -37,7 +37,7 @@ def unstack(AA, n, no_feedtrough=False):
     return A, B, C, D
 
 
-def to_phlti(JJ, RR, n, E=None, no_feedtrough=False, name=None):
+def to_phlti(JJ, RR, n, E=None, Q=None, no_feedtrough=False, name=None):
     """
     Creates a PHLTIModel from structure matrix and dissipation matrix.
 
@@ -64,7 +64,7 @@ def to_phlti(JJ, RR, n, E=None, no_feedtrough=False, name=None):
     J, G, _, N = unstack(JJ, n, no_feedtrough)
     R, P, _, S = unstack(RR, n, no_feedtrough)
 
-    return PHLTIModel.from_matrices(J, R, G, P, S, N, E, name=name)
+    return PHLTIModel.from_matrices(J, R, G, P, S, N, E, Q=Q, name=name)
 
 
 def to_lti(AA, n, E=None, sampling_time=0, no_feedtrough=False, name=None):
