@@ -1,7 +1,9 @@
 from phdmd.algorithm.dmd import iodmd, operator_inference
 from phdmd.algorithm.phdmd import phdmd
+from phdmd.algorithm.phdmdh import phdmdh
 from phdmd.utils.system import to_lti, to_phlti
 
+from matplotlib import pyplot as plt
 
 class Method:
     """
@@ -41,12 +43,34 @@ class PHDMDMethod(Method):
     def __init__(self):
         super().__init__('pHDMD')
 
-    def __call__(self, X, Y, U, delta_t, H):
+    def __call__(self, X, Y, U, delta_t, H, use_Berlin = None, Q=None):
         n = X.shape[0]
         J, R, e = phdmd(X, Y, U, delta_t=delta_t, H=H)
         phlti = to_phlti(J, R, n=n, E=H, no_feedtrough=True)
 
         return phlti
 
+class PHDMDHMethod(Method):
+    def __init__(self):
+        super().__init__('pHDMDH')
 
-methods = [IODMDMethod(), OIMethod(), PHDMDMethod()]
+    def __call__(self, X, Y, U, delta_t, use_Berlin, H=None, Q=None):
+        # H not needed but used to be in accordance with other methods calling
+        n = X.shape[0]
+        max_iter = 1000
+        J, R, H, Q, e = phdmdh(X, Y, U, H0=H, Q0=Q, delta_t=delta_t, use_Berlin=use_Berlin, max_iter=max_iter)
+        phlti = to_phlti(J, R, n=n, E=H, Q=Q, no_feedtrough=True)
+
+        plot_error_over_iter = True
+        if plot_error_over_iter:
+            plt.figure()
+            plt.plot(e, label="rel. Fro error")
+            plt.yscale("log")
+            plt.xlabel("Iterations")
+            plt.ylabel("Rel. Fro norm error")
+            plt.savefig(f"error_fro_Bform{use_Berlin}_iter{max_iter}.png")
+
+        return phlti
+
+
+# methods = [IODMDMethod(), OIMethod(), PHDMDMethod()]
