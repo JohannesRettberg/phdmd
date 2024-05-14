@@ -437,3 +437,13 @@ TSWLatexianTemp*
 
 # glossaries
 *.glstex
+
+*.png
+
+*.txt
+
+*.npz
+
+*.prof
+
+*.pdf
