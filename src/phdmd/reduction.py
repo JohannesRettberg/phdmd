@@ -19,6 +19,8 @@ from phdmd.data.generate import generate
 from phdmd.evaluation.evaluation import h_norm
 from phdmd.utils.plotting import plot
 
+from phdmd.utils.preprocess_data import get_Riccati_transform, get_initial_energy_matrix, perturb_initial_energy_matrix
+
 
 def main():
     logging.basicConfig()
@@ -35,8 +37,8 @@ def main():
     exp = config.mimo_msd_exp
     logging.info(f'Experiment: {exp.name}')
 
-    reduced_orders = np.array(range(2, 102, 2))
-    noise_levels = np.array([None, 1e-4, 1e-6])
+    reduced_orders = np.array(range(2, 102, 10)) # np.array(range(2, 102, 2))
+    noise_levels = np.array([None]) # np.array([None, 1e-4, 1e-6])
 
     experiment_name = f'{exp.name}_h_norms'
 
@@ -56,13 +58,25 @@ def main():
         if not os.path.exists(config.evaluations_path + '/' + f'{experiment_name_i}.npz'):
 
             n = exp.fom.order
-            H = exp.H
+            use_Berlin = exp.use_Berlin
+
+            H, Q = get_initial_energy_matrix(exp)
             logging.info(f'State dimension n={n}')
+
+
+            if exp.use_Riccatti_transform:
+                T = get_Riccati_transform(exp)
+
+            if exp.perturb_energy_matrix:
+                H,Q = perturb_initial_energy_matrix(exp,H,Q) 
 
             # Set noise for the experiment
             exp.noise = noise
             # Generate/Load training data
             X_train, Y_train, U_train = generate(exp)
+
+            if exp.use_Riccatti_transform:
+                X_train = T@X_train
 
             h2_norms_i = np.zeros((len(reduced_orders), num_methods))
             hinf_norms_i = np.zeros((len(reduced_orders), num_methods))
@@ -76,17 +90,22 @@ def main():
                 V = NumpyVectorSpace.from_numpy(VV[:, :r].T, id='STATE')
 
                 # POD with Q lhs
-                pg_reductor = LTIPGReductor(exp.fom.to_lti(), V, V)
+                pg_reductor = LTIPGReductor(exp.fom, V, V)
                 lti_pod = pg_reductor.reduce()
                 lti_dict['POD'] = lti_pod
 
                 # Transofrm data
                 X_train_red = to_matrix(project(NumpyMatrixOperator(X_train, range_id='STATE'), V, None))
-                H_red = to_matrix(project(NumpyMatrixOperator(H, source_id='STATE', range_id='STATE'), V, V))
+                if use_Berlin:
+                    H_red = to_matrix(project(NumpyMatrixOperator(H, source_id='STATE', range_id='STATE'), V, V))
+                    Q_red = None
+                else:
+                    Q_red = to_matrix(project(NumpyMatrixOperator(Q, source_id='STATE', range_id='STATE'), V, V))
+                    H_red = None
 
                 # Perform methods
                 for method in exp.methods:
-                    lti = method(X_train_red, Y_train, U_train, exp.delta, H_red)
+                    lti = method(X_train_red, Y_train, U_train, exp.delta, use_Berlin=use_Berlin, H=H_red, Q=Q_red)
                     lti_dict[method.name] = lti
 
                 h2, hinf = h_norm(exp.fom, list(lti_dict.values()), list(lti_dict.keys()), compute_hinf=True)
@@ -120,10 +139,25 @@ def main():
 
     markevery = 10
 
+    if exp.perturb_energy_matrix:
+        if isinstance(exp.perturb_value,str):
+            add_perturb_name = f"_perturb_{exp.perturb_value}"
+        else:
+            add_perturb_name = f"_perturb{exp.perturb_value:.0e}"
+    else:
+        add_perturb_name = ""
+
+    if exp.use_Riccatti_transform:
+        add_Ricc_name = f"_Ricc{exp.use_Riccatti_transform}"
+    else:
+        add_Ricc_name = ""
+
+    add_plot_name = f"_Bform{exp.use_Berlin}_init_{exp.HQ_init_strat}{add_perturb_name}{add_Ricc_name}"
+
     plot(reduced_orders, h2_norms.T[:, np.newaxis, :], label=labels,
          c=c, ls=ls, marker=markers, markevery=markevery,
          yscale='log', ylabel='$\mathcal{H}_2$ error', grid=True, subplots=False,
-         xlabel='Reduced order', fraction=1, name=f'{experiment_name}_h2')
+         xlabel='Reduced order', fraction=1, name=f'{experiment_name}_h2_{add_plot_name}')
 
 
 if __name__ == "__main__":
