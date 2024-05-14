@@ -1,10 +1,14 @@
 import logging
 import os
+import numpy as np
 
 from phdmd import config
 from phdmd.data.generate import generate
 from phdmd.evaluation.evaluation import evaluate
+from phdmd.linalg.definiteness import project_spsd, project_spd
+from phdmd.utils.preprocess_data import get_Riccati_transform, get_initial_energy_matrix, perturb_initial_energy_matrix
 
+from pymor.models.iosys import PHLTIModel, LTIModel
 
 def main():
     logging.basicConfig()
@@ -23,8 +27,16 @@ def main():
         logging.info(f'Experiment: {exp.name}')
         lti_dict = {}
 
+        if exp.use_Riccatti_transform:
+            T = get_Riccati_transform(exp)
+
         n = exp.fom.order
-        H = exp.H
+        use_Berlin = exp.use_Berlin
+
+        H, Q = get_initial_energy_matrix(exp)
+
+        if exp.perturb_energy_matrix:
+            H,Q = perturb_initial_energy_matrix(exp,H,Q)             
 
         logging.info(f'State dimension n = {n}')
         logging.info(f'Step size delta = {exp.delta:.2e}')
@@ -33,18 +45,22 @@ def main():
         # Generate/Load training data
         X_train, Y_train, U_train = generate(exp)
 
+
+        if exp.use_Riccatti_transform:
+            X_train = T@X_train
+
         # Plot training input, analogously output or state data
         # plot(exp.T, U_train, label='$u$', ylabel='Input', xlabel='Time (s)',
         #      fraction=config.fraction, name=exp.name + '_training_input')
 
         # Perform methods
         for method in exp.methods:
-            lti = method(X_train, Y_train, U_train, exp.delta, H)
+            lti = method(X_train, Y_train, U_train, exp.delta, use_Berlin, H=H, Q=Q)
             lti_dict[method.name] = lti
 
         # Evaluation
         logging.info('Evaluate')
-        evaluate(exp, lti_dict)
+        evaluate(exp, lti_dict, compute_hinf=False)
 
 
 if __name__ == "__main__":
