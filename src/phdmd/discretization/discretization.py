@@ -37,8 +37,8 @@ def discretize(lti, U, T, x0, method='implicit_midpoint', return_dXdt=False):
         The output data.
     """
     assert isinstance(lti, PHLTIModel) or isinstance(lti, LTIModel)
-    if isinstance(lti, PHLTIModel):
-        lti = lti.to_lti()
+    # if isinstance(lti, PHLTIModel):
+    #     lti = lti.to_lti()
 
     match method:
         case 'implicit_midpoint':
