@@ -3,7 +3,7 @@ import numpy as np
 from scipy.linalg import block_diag
 
 
-def msd(n=6, m=1, m_i=4, k_i=4, c_i=1, as_ph=True):
+def msd(n=6, m=1, m_i=4, k_i=4, c_i=1, as_ph=True, use_Berlin = True):
     """
     Returns the mass-spring-damper benchmark system (cf. :cite:`GugPBV12`), as port-Hamiltonian system.
 
@@ -85,13 +85,15 @@ def msd(n=6, m=1, m_i=4, k_i=4, c_i=1, as_ph=True):
     S = np.zeros((m, m))
     N = np.zeros((m, m))
     E = np.eye(2 * n)
+    H = E
 
-    # bring Q to left-hand side
-    H = Q.T @ E
-    J = Q.T @ J @ Q
-    R = Q.T @ R @ Q
-    G = Q.T @ G
-    P = Q.T @ P
-    Q = np.eye(J.shape[0])
+    if use_Berlin:
+        # bring Q to left-hand side
+        H = Q.T @ E
+        J = Q.T @ J @ Q
+        R = Q.T @ R @ Q
+        G = Q.T @ G
+        P = Q.T @ P
+        Q = np.eye(J.shape[0])
 
-    return H, J, R, G, P, S, N
+    return H, J, R, G, P, S, N, Q
