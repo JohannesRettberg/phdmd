@@ -49,3 +49,21 @@ def project_spsd(A):
     w, U = np.linalg.eigh(sym(A))
 
     return U @ np.diag(w.clip(min=0)) @ U.T
+
+def project_spd(A):
+    """
+    Projects a matrix on the set of symmetric positive definite matrices.
+
+    Parameters
+    ----------
+    A : array_like
+        The matrix to project on the set of symmetric positive definite matrices.
+
+    Returns
+    -------
+    A_spsd : numpy.ndarray
+        The projected symmetric positive definite matrix.
+    """
+    w, U = np.linalg.eigh(sym(A))
+
+    return U @ np.diag(w.clip(min=1e-10)) @ U.T

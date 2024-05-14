@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 
-import config
+from phdmd import config
 from phdmd.data.generate import sim
 from phdmd.utils.plotting import plot
 
@@ -65,7 +65,7 @@ def h_norm(lti_ref, lti_approx, label, compute_hinf=True):
     return h2_norms, hinf_norms
 
 
-def evaluate(exp, lti_dict):
+def evaluate(exp, lti_dict, compute_hinf = True):
     """
     Evaluate the experiment for given approximated systems.
     Generates plots and computes the H2 and (optional) Hinf norm of the error.
@@ -109,15 +109,30 @@ def evaluate(exp, lti_dict):
     ls = len(labels) * ['--']
     ls[0] = '-'
     testing_output_labels = ['$y$', *[r'$\widetilde{y}_{\mathrm{' + l + '}}$' for l in labels[1:]]]
+
+    if exp.perturb_energy_matrix:
+        if isinstance(exp.perturb_value,str):
+            add_perturb_name = f"_perturb_{exp.perturb_value}"
+        else:
+            add_perturb_name = f"_perturb{exp.perturb_value:.0e}"
+    else:
+        add_perturb_name = ""
+
+    if exp.use_Riccatti_transform:
+        add_Ricc_name = f"_Ricc{exp.use_Riccatti_transform}"
+    else:
+        add_Ricc_name = ""
+
+    add_plot_name = f"_Bform{exp.use_Berlin}_init_{exp.HQ_init_strat}{add_perturb_name}{add_Ricc_name}"
     plot(exp.T_test, Y_list, label=testing_output_labels, c=config.colors, xlabel='Time',
          # ylim=[-1.5, 0.5],
-         ylabel='Testing output', name=f'{exp.name}_testing_output', ls=ls, fraction=config.fraction)
+         ylabel='Testing output', name=f'{exp.name}_testing_output{add_plot_name}', ls=ls, fraction=config.fraction)
 
     # Absolute Error of the trajectories
     plot(exp.T_test, Y_error_list, label=labels[1:], c=config.colors[1:], yscale='log', xlabel='Time',
          ylabel='Absolute error',
-         name=f'{exp.name}_abs_error', fraction=config.fraction)
+         name=f'{exp.name}_abs_error{add_plot_name}', fraction=config.fraction)
 
     # H-norm calculation fails for the poro benchmark system
     if exp.model != 'poro':
-        h_norm(lti_list[0], lti_list[1:], labels[1:])
+        h_norm(lti_list[0], lti_list[1:], labels[1:],compute_hinf=compute_hinf)
