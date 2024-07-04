@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import time
+import logging
 
 from tqdm import tqdm
 
@@ -8,7 +9,7 @@ from pymor.algorithms.to_matrix import to_matrix
 from pymor.models.iosys import LTIModel, PHLTIModel
 
 
-def discretize(lti, U, T, x0, method='implicit_midpoint', return_dXdt=False):
+def discretize(lti, U, T, x0, method="implicit_midpoint", return_dXdt=False):
     """
     Discretize a continuous-time linear time-invariant system.
 
@@ -42,11 +43,11 @@ def discretize(lti, U, T, x0, method='implicit_midpoint', return_dXdt=False):
     # if isinstance(lti, PHLTIModel):
     #     lti = lti.to_lti()
 
-    if isinstance(U,list):
+    if isinstance(U, list):
         U_is_list = True
         n_scenarios = len(U)
-        U_temp = U.copy()[0] 
-        U_list = U.copy()                
+        U_temp = U.copy()[0]
+        U_list = U.copy()
     else:
         U_is_list = False
         U_temp = U
@@ -60,44 +61,84 @@ def discretize(lti, U, T, x0, method='implicit_midpoint', return_dXdt=False):
         n_u = U_temp.shape[0]
 
     if return_dXdt:
-        X = np.zeros((lti.order, len(T),n_scenarios))
+        X = np.zeros((lti.order, len(T), n_scenarios))
         U = np.zeros((n_u, len(T), n_scenarios))
         Y = np.zeros((n_u, len(T), n_scenarios))
-        dXdt = np.zeros((lti.order, len(T),n_scenarios))
+        dXdt = np.zeros((lti.order, len(T), n_scenarios))
     else:
-        X = np.zeros((lti.order, len(T),n_scenarios))
+        X = np.zeros((lti.order, len(T), n_scenarios))
         U = np.zeros((n_u, len(T), n_scenarios))
         Y = np.zeros((n_u, len(T), n_scenarios))
     for i_scenario in range(n_scenarios):
         if U_is_list:
             U_temp = U_list[i_scenario]
         else:
-            pass # keep U_temp
+            pass  # keep U_temp
         match method:
-            case 'implicit_midpoint':
+            case "implicit_midpoint":
                 if return_dXdt:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                    (
+                        U[:, :, i_scenario],
+                        X[:, :, i_scenario],
+                        Y[:, :, i_scenario],
+                        dXdt[:, :, i_scenario],
+                    ) = implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
                 else:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
-            case 'explicit_euler':
+                    U[:, :, i_scenario], X[:, :, i_scenario], Y[:, :, i_scenario] = (
+                        implicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                    )
+            case "explicit_euler":
                 if return_dXdt:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  explicit_euler(lti, U_temp, T, x0, return_dXdt)
+                    (
+                        U[:, :, i_scenario],
+                        X[:, :, i_scenario],
+                        Y[:, :, i_scenario],
+                        dXdt[:, :, i_scenario],
+                    ) = explicit_euler(lti, U_temp, T, x0, return_dXdt)
                 else:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  explicit_euler(lti, U_temp, T, x0, return_dXdt)
-            case 'explicit_midpoint':
+                    U[:, :, i_scenario], X[:, :, i_scenario], Y[:, :, i_scenario] = (
+                        explicit_euler(lti, U_temp, T, x0, return_dXdt)
+                    )
+            case "explicit_midpoint":
                 if return_dXdt:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                    (
+                        U[:, :, i_scenario],
+                        X[:, :, i_scenario],
+                        Y[:, :, i_scenario],
+                        dXdt[:, :, i_scenario],
+                    ) = explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
                 else:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                    U[:, :, i_scenario], X[:, :, i_scenario], Y[:, :, i_scenario] = (
+                        explicit_midpoint(lti, U_temp, T, x0, return_dXdt)
+                    )
             case _:
                 if return_dXdt:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario], dXdt[:,:,i_scenario] =  scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
+                    (
+                        U[:, :, i_scenario],
+                        X[:, :, i_scenario],
+                        Y[:, :, i_scenario],
+                        dXdt[:, :, i_scenario],
+                    ) = scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
                 else:
-                    U[:,:,i_scenario], X[:,:,i_scenario], Y[:,:,i_scenario] =  scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
+                    U[:, :, i_scenario], X[:, :, i_scenario], Y[:, :, i_scenario] = (
+                        scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
+                    )
     if return_dXdt:
-        return np.reshape(np.transpose(U,(0,2,1)),(n_u,len(T)*n_scenarios)),np.reshape(np.transpose(X,(0,2,1)),(lti.order,len(T)*n_scenarios)), np.reshape(np.transpose(Y,(0,2,1)),(n_u,len(T)*n_scenarios)), np.reshape(np.transpose(dXdt,(0,2,1)),(lti.order,len(T)*n_scenarios))
+        return (
+            np.reshape(np.transpose(U, (0, 2, 1)), (n_u, len(T) * n_scenarios)),
+            np.reshape(np.transpose(X, (0, 2, 1)), (lti.order, len(T) * n_scenarios)),
+            np.reshape(np.transpose(Y, (0, 2, 1)), (n_u, len(T) * n_scenarios)),
+            np.reshape(
+                np.transpose(dXdt, (0, 2, 1)), (lti.order, len(T) * n_scenarios)
+            ),
+        )
     else:
-        return np.reshape(np.transpose(U,(0,2,1)),(n_u,len(T)*n_scenarios)),np.reshape(np.transpose(X,(0,2,1)),(lti.order,len(T)*n_scenarios)), np.reshape(np.transpose(Y,(0,2,1)),(n_u,len(T)*n_scenarios))
+        return (
+            np.reshape(np.transpose(U, (0, 2, 1)), (n_u, len(T) * n_scenarios)),
+            np.reshape(np.transpose(X, (0, 2, 1)), (lti.order, len(T) * n_scenarios)),
+            np.reshape(np.transpose(Y, (0, 2, 1)), (n_u, len(T) * n_scenarios)),
+        )
+
 
 def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
     """
@@ -135,34 +176,43 @@ def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
 
     M = to_matrix(lti.E - delta / 2 * lti.A)
     AA = to_matrix(lti.E + delta / 2 * lti.A)
-    E = to_matrix(lti.E, format='dense')
+    E = to_matrix(lti.E, format="dense")
     A = to_matrix(lti.A)
     B = to_matrix(lti.B)
     C = to_matrix(lti.C)
-    D = to_matrix(lti.D, format='dense')
+    D = to_matrix(lti.D, format="dense")
 
     X = np.zeros((lti.order, len(T)))
     X[:, 0] = x0.ravel()
 
-    
-    M_issparse = scipy.sparse.issparse(M) 
-    # LU decomposition  
+    M_issparse = scipy.sparse.issparse(M)
+    # LU decomposition
     if M_issparse:
-        if M.getformat() == 'csr':
-            # convert to csc to prevent splu giving a warning 
+        if M.getformat() == "csr":
+            # convert to csc to prevent splu giving a warning
             M = scipy.sparse.csc_matrix(M)
         invM_sparse = scipy.sparse.linalg.splu(M)
     else:
         lu_dense, piv_dense = scipy.linalg.lu_factor(M)
-        # AA as matrix lead to errors in matrix multiplication AA of shape (n,k) and X[:,i] of shape (k,) lead to shape (1,n) 
+        # AA as matrix lead to errors in matrix multiplication AA of shape (n,k) and X[:,i] of shape (k,) lead to shape (1,n)
         AA = np.array(AA)
-    
+
+    warning_printed = False  # unstable system warning
     for i in tqdm(range(len(T) - 1)):
         U_midpoint = 1 / 2 * (U[:, i] + U[:, i + 1])
-        if M_issparse:
-            X[:, i + 1] = invM_sparse.solve(AA @ X[:, i] + delta * B @ U_midpoint)
-        else:
-            X[:, i + 1] = scipy.linalg.lu_solve((lu_dense, piv_dense), AA @ X[:, i] + delta * B @ U_midpoint)
+        try:
+            if M_issparse:
+                X[:, i + 1] = invM_sparse.solve(AA @ X[:, i] + delta * B @ U_midpoint)
+            else:
+                X[:, i + 1] = scipy.linalg.lu_solve(
+                    (lu_dense, piv_dense), AA @ X[:, i] + delta * B @ U_midpoint
+                )
+        except ValueError:
+            # unstable system leads to "array must not contain infs or nans" ValueError
+            if not (warning_printed):
+                logging.warning(f"System is unstable. Setting state values to nan.")
+                warning_printed = True  # print only once
+            X[:, i + 1] = np.ones_like(X[:, i + 1]) * np.nan
 
     Y = C @ X + D @ U
 
@@ -201,16 +251,16 @@ def implicit_midpoint(lti, U, T, x0, return_dXdt=False):
     # start = time.time()
     # X[:, i + 1] = np.linalg.solve(M_array, AA @ X[:, i] + delta * B @ U_midpoint)
     # end = time.time()
-    # print(f'Numpy linalg approach with np array takes {end - start} s and result is {X[:, i + 1]}') 
+    # print(f'Numpy linalg approach with np array takes {end - start} s and result is {X[:, i + 1]}')
     # start = time.time()
     # X[:, i + 1] = scipy.linalg.lu_solve((lu_dense, piv_dense), AA @ X[:, i] + delta * B @ U_midpoint)
     # end = time.time()
-    # print(f'LU solve approach with np array takes {end - start} s and result is {X[:, i + 1]}') 
+    # print(f'LU solve approach with np array takes {end - start} s and result is {X[:, i + 1]}')
     # start = time.time()
     # X[:, i + 1] = invM_sparse.solve(AA @ X[:, i] + delta * B @ U_midpoint)
     # end = time.time()
-    # print(f'LU solve approach with sparse matrix takes {end - start} s and result is {X[:, i + 1]}') 
-    
+    # print(f'LU solve approach with sparse matrix takes {end - start} s and result is {X[:, i + 1]}')
+
 
 def explicit_euler(lti, U, T, x0, return_dXdt=False):
     """
@@ -246,11 +296,11 @@ def explicit_euler(lti, U, T, x0, return_dXdt=False):
 
     delta = T[1] - T[0]
 
-    E = to_matrix(lti.E, format='dense')
+    E = to_matrix(lti.E, format="dense")
     A = to_matrix(lti.A)
     B = to_matrix(lti.B)
     C = to_matrix(lti.C)
-    D = to_matrix(lti.D, format='dense')
+    D = to_matrix(lti.D, format="dense")
 
     X = np.zeros((lti.order, len(T)))
     X[:, 0] = x0
@@ -301,18 +351,20 @@ def explicit_midpoint(lti, U, T, x0, return_dXdt=False):
 
     delta = T[1] - T[0]
 
-    E = to_matrix(lti.E, format='dense')
+    E = to_matrix(lti.E, format="dense")
     A = to_matrix(lti.A)
     B = to_matrix(lti.B)
     C = to_matrix(lti.C)
-    D = to_matrix(lti.D, format='dense')
+    D = to_matrix(lti.D, format="dense")
 
     X = np.zeros((lti.order, len(T)))
     X[:, 0] = x0
 
     for i in tqdm(range(len(T) - 1)):
         X_ = X[:, i] + delta * np.linalg.solve(E, A @ X[:, i] + B @ U[:, i])
-        X[:, i + 1] = X[:, i] + delta * np.linalg.solve(E, A @ X_ + B @ (1 / 2 * (U[:, i] + U[:, i + 1])))
+        X[:, i + 1] = X[:, i] + delta * np.linalg.solve(
+            E, A @ X_ + B @ (1 / 2 * (U[:, i] + U[:, i + 1]))
+        )
 
     Y = C @ X + D @ U
 
@@ -323,12 +375,12 @@ def explicit_midpoint(lti, U, T, x0, return_dXdt=False):
         return U, X, Y, dXdt
 
 
-def scipy_solve_ivp(lti, u, T, x0, method='RK45', return_dXdt=False):
-    E = to_matrix(lti.E, format='dense')
+def scipy_solve_ivp(lti, u, T, x0, method="RK45", return_dXdt=False):
+    E = to_matrix(lti.E, format="dense")
     A = to_matrix(lti.A)
     B = to_matrix(lti.B)
     C = to_matrix(lti.C)
-    D = to_matrix(lti.D, format='dense')
+    D = to_matrix(lti.D, format="dense")
 
     U = u(T)
     if U.ndim < 2:
