@@ -3,11 +3,25 @@ import logging
 import numpy as np
 
 from phdmd.algorithm.skew_procrustes import skew_procrustes
+from phdmd.algorithm.skew_cvx import skew_cvx
 from phdmd.linalg.definiteness import project_spsd
 from phdmd.linalg.symmetric import skew
 
 
-def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5, delta=1e-12):
+def phdmd(
+    X,
+    Y,
+    U,
+    dXdt=None,
+    delta_t=None,
+    H=None,
+    J0=None,
+    R0=None,
+    max_iter=1000,
+    delta=1e-12,
+    use_cvx=False,
+    J_known=None,
+):
     r"""
     The pHDMD algorithm identifies a port-Hamiltonian system from state, output and input measurements.
 
@@ -82,14 +96,15 @@ def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5
 
     # TODO: remove this part
     from matplotlib import pyplot as plt
+
     plt.figure
     plt.title(f"X_red")
-    plt.plot(np.transpose(X[:5,:]))
+    plt.plot(np.transpose(X[:5, :]))
     plt.savefig("X_train_in_phdmd.png")
 
     plt.figure
     plt.title("dXdt_red")
-    plt.plot(np.transpose(dXdt[:5,:]))
+    plt.plot(np.transpose(dXdt[:5, :]))
     plt.savefig("dXdt_train_in_phdmd.png")
 
     if H is None:
@@ -98,7 +113,7 @@ def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5
     T = np.concatenate((X, U))
     Z = np.concatenate((H @ dXdt, -Y))
 
-    logging.info('Perform pHDMD')
+    logging.info("Perform pHDMD")
 
     # pHDMD initialization
     if J0 is None:
@@ -109,7 +124,9 @@ def phdmd(X, Y, U, dXdt=None, delta_t=None, H=None, J0=None, R0=None, max_iter=5
         R = R0
 
     # pHDMD algorithm
-    J, R, e = phdmd_FGM(T, Z, J, R, max_iter, delta)
+    J, R, e = phdmd_FGM(
+        T, Z, J, R, max_iter, delta, use_cvx=use_cvx, n=X.shape[0], J=J_known
+    )
 
     return J, R, e
 
@@ -154,7 +171,7 @@ def phdmd_init(T, Z, tol=1e-12):
     S_inv = np.diag(1 / s)
 
     if r < n:
-        logging.warning(f'Rank(T) < n + m ({r} < {n})')
+        logging.warning(f"Rank(T) < n + m ({r} < {n})")
 
     Z_1 = U.T @ Z @ V
 
@@ -172,20 +189,24 @@ def phdmd_init(T, Z, tol=1e-12):
         J_cmp[:r, r:] = -J_21.T
         J = J + U @ J_cmp @ U.T
 
-    e = np.linalg.norm(T.T @ Z - T.T @ (J - R) @ T, 'fro')
-    logging.info(f'|T^T Z - T^T (J^(0) - R^(0)) T|_F = {e:.2e}')
+    e = np.linalg.norm(T.T @ Z - T.T @ (J - R) @ T, "fro")
+    logging.info(f"|T^T Z - T^T (J^(0) - R^(0)) T|_F = {e:.2e}")
     e_rel = e / np.linalg.norm(T.T @ Z)
-    logging.info(f'|T^T Z - T^T (J^(0) - R^(0)) T|_F / |T^T Z|_F = {e_rel:.2e}')
+    logging.info(f"|T^T Z - T^T (J^(0) - R^(0)) T|_F / |T^T Z|_F = {e_rel:.2e}")
     if r == n:
-        c = np.linalg.norm(np.linalg.pinv(T.T), 'fro')
-        e0 = np.linalg.norm(Z - (J - R) @ T, 'fro')
-        logging.info(f'|Z - (J^(0) - R^(0)) T|_F = {e0:.2e} <= c |T^T Z - T^T (J^(0) - R^(0)) T|_F = {c * e:.2e}')
-        logging.info(f'with c = {c:.2e}')
+        c = np.linalg.norm(np.linalg.pinv(T.T), "fro")
+        e0 = np.linalg.norm(Z - (J - R) @ T, "fro")
+        logging.info(
+            f"|Z - (J^(0) - R^(0)) T|_F = {e0:.2e} <= c |T^T Z - T^T (J^(0) - R^(0)) T|_F = {c * e:.2e}"
+        )
+        logging.info(f"with c = {c:.2e}")
 
     return J, R
 
 
-def phdmd_FGM(T, Z, J0, R0, max_iter=20, delta=1e-12):
+def phdmd_FGM(
+    T, Z, J0, R0, max_iter=20, delta=1e-12, use_cvx=False, n=None, J_known=None
+):
     r"""
     Iterative algorithm to solve the pHDMD problem via a fast-gradient method
     and the analytic solution of the skew-symmetric Procrustes problem.
@@ -236,8 +257,8 @@ def phdmd_FGM(T, Z, J0, R0, max_iter=20, delta=1e-12):
 
     Yr = R
     alpha[0] = alpha_0
-    e[0] = np.linalg.norm(Z - (J - R) @ T, 'fro') / np.linalg.norm(Z)
-    logging.info(f'|Z - (J^(0) - R^(0)) T|_F / |Z|_F = {e[0]:.2e}')
+    e[0] = np.linalg.norm(Z - (J - R) @ T, "fro") / np.linalg.norm(Z)
+    logging.info(f"|Z - (J^(0) - R^(0)) T|_F / |Z|_F = {e[0]:.2e}")
 
     for i in range(max_iter):
         # Previous iterate
@@ -245,8 +266,11 @@ def phdmd_FGM(T, Z, J0, R0, max_iter=20, delta=1e-12):
         Jp = J
 
         Z_1 = Z + R @ T
-        # Solution of the skew-symmetric Procrustes
-        J, _ = skew_procrustes(T, Z_1)
+        if use_cvx:
+            J, _ = skew_cvx(T, Z_1, n, J=J_known)
+        else:
+            # Solution of the skew-symmetric Procrustes
+            J, _ = skew_procrustes(T, Z_1)
 
         Z_2 = J @ T - Z
         # Projected gradient step from Y
@@ -254,20 +278,23 @@ def phdmd_FGM(T, Z, J0, R0, max_iter=20, delta=1e-12):
         R = project_spsd(Yr - G / L)
 
         # FGM Coefficients
-        alpha[i + 1] = (np.sqrt((alpha[i] ** 2 - q) ** 2 + 4 * alpha[i] ** 2) + (q - alpha[i] ** 2)) / 2
+        alpha[i + 1] = (
+            np.sqrt((alpha[i] ** 2 - q) ** 2 + 4 * alpha[i] ** 2) + (q - alpha[i] ** 2)
+        ) / 2
         beta[i] = alpha[i] * (1 - alpha[i]) / (alpha[i] ** 2 + alpha[i + 1])
 
         # Linear combination of iterates
         Yr = R + beta[i] * (R - Rp)
 
-        e[i + 1] = np.linalg.norm(Z - (J - R) @ T, 'fro') / np.linalg.norm(Z)
-        logging.info(f'|Z - (J^({i + 1}) - R^({i + 1})) T|_F / |Z|_F = {e[i + 1]:.2e}')
+        e[i + 1] = np.linalg.norm(Z - (J - R) @ T, "fro") / np.linalg.norm(Z)
+        logging.info(f"|Z - (J^({i + 1}) - R^({i + 1})) T|_F / |Z|_F = {e[i + 1]:.2e}")
 
-        eps = np.linalg.norm(Jp - J, 'fro') / (np.linalg.norm(J, 'fro')) + \
-              np.linalg.norm(Rp - R, 'fro') / (np.linalg.norm(R, 'fro'))
+        eps = np.linalg.norm(Jp - J, "fro") / (
+            np.linalg.norm(J, "fro")
+        ) + np.linalg.norm(Rp - R, "fro") / (np.linalg.norm(R, "fro"))
         if eps < delta or np.abs(e[i + 1] - e[i]) < delta:
-            e = e[:i + 2]
-            logging.info(f'Converged after {i + 1} iterations.')
+            e = e[: i + 2]
+            logging.info(f"Converged after {i + 1} iterations.")
             break
 
     return J, R, e

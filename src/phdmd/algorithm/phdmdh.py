@@ -3,6 +3,7 @@ import logging
 import numpy as np
 
 from phdmd.algorithm.skew_procrustes import skew_procrustes
+from phdmd.algorithm.skew_cvx import skew_cvx
 from phdmd.linalg.definiteness import project_spsd, project_spd
 from phdmd.linalg.symmetric import skew
 
@@ -11,7 +12,23 @@ from phdmd.utils.system import unstack
 from matplotlib import pyplot as plt
 from scipy.signal import savgol_filter
 
-def phdmdh(X, Y, U, dXdt=None, delta_t=None, use_Berlin=True, J0=None, R0=None, H0=None, Q0=None, max_iter=20, delta=1e-12):
+
+def phdmdh(
+    X,
+    Y,
+    U,
+    dXdt=None,
+    delta_t=None,
+    use_Berlin=True,
+    J0=None,
+    R0=None,
+    H0=None,
+    Q0=None,
+    max_iter=20,
+    delta=1e-12,
+    use_cvx=False,
+    J_known=None,
+):
     r"""
     The pHDMD algorithm identifies a port-Hamiltonian system from state, output and input measurements.
 
@@ -86,49 +103,12 @@ def phdmdh(X, Y, U, dXdt=None, delta_t=None, use_Berlin=True, J0=None, R0=None, 
 
     filter_data = False
     if filter_data:
-        dXdt = savgol_filter(dXdt,window_length=5,polyorder=3,deriv=0,delta=delta_t)
-    
+        dXdt = savgol_filter(dXdt, window_length=5, polyorder=3, deriv=0, delta=delta_t)
+
     # e = np.array([np.inf])
     # while e[-1] > 1e-3:
-    
-    logging.info('Perform pHDMD')
-    # pHDMD initialization
-    # use_H_or_Q_eye = True
-    # if use_Berlin:
-    #     if H0 is None:
-    #         # initialize H
-    #         if use_H_or_Q_eye:
-    #             # init H as identity
-    #             logging.info("Identity matrix is used as H initialization.")
-    #             H = np.eye(X.shape[0])
-    #         else:
-    #             # init H as random spd matrix
-    #             logging.info("Random spd H0 matrix is used as H initialization.")
-    #             H = np.random.rand(6,6)
-    #             H = project_spd(H)
-    #     else:
-    #         logging.info("Input H0 matrix is used as H initialization.")
-    #         H = H0
-    #     Q = np.eye(X.shape[0])
-    # else:
-    #     if Q0 is None:
-    #         # initialize H
-    #         if use_H_or_Q_eye:
-    #             # init H as identity
-    #             logging.info("Identity matrix is used as Q initialization.")
-    #             Q = np.eye(X.shape[0])
-    #         else:
-    #             # init H as random spd matrix
-    #             logging.info("Random spd Q0 matrix is used as Q initialization.")
-    #             # Q = np.random.rand(6,6)
-    #             # Q = project_spd(Q)
-    #             Q = np.diag(np.abs(np.random.rand(6,)))
-                
-    #     else:
-    #         logging.info("Input Q0 matrix is used as Q initialization.")
-    #         Q = Q0
-    #     H = np.eye(X.shape[0]) 
 
+    logging.info("Perform pHDMD")
     if use_Berlin:
         assert H0 is not None
         H = H0
@@ -155,10 +135,31 @@ def phdmdh(X, Y, U, dXdt=None, delta_t=None, use_Berlin=True, J0=None, R0=None, 
         "Y": Y,
         "T": T,
         "Z": Z,
-        }
+    }
+
+    # G_known = np.array([[0.75], [0.5], [0.25], [0.0], [0.0], [0.0]])
+
+    # P_known = np.array([[0.0], [0.0], [0.0], [0.0], [0.0], [0.0]])
+
+    # J_op = np.block([[J_known, G_known], [-G_known.T, 0]])
+    # R_op = np.block([[R_known, P_known], [P_known.T, 0]])
+
+    # print(np.linalg.norm(Z - (J_op - R_op) @ T, "fro"))
 
     # pHDMD algorithm
-    J, R, H, Q, e = phdmdh_FGM(data, J, R, H, Q, use_Berlin, max_iter, delta)
+    J, R, H, Q, e = phdmdh_FGM(
+        data,
+        J,
+        R,
+        H,
+        Q,
+        use_Berlin,
+        max_iter,
+        delta,
+        use_cvx=use_cvx,
+        n=X.shape[0],
+        J_known=J_known,
+    )
 
     return J, R, H, Q, e
 
@@ -203,7 +204,7 @@ def phdmd_init(T, Z, tol=1e-12):
     S_inv = np.diag(1 / s)
 
     if r < n:
-        logging.warning(f'Rank(T) < n + m ({r} < {n})')
+        logging.warning(f"Rank(T) < n + m ({r} < {n})")
 
     Z_1 = U.T @ Z @ V
 
@@ -221,20 +222,34 @@ def phdmd_init(T, Z, tol=1e-12):
         J_cmp[:r, r:] = -J_21.T
         J = J + U @ J_cmp @ U.T
 
-    e = np.linalg.norm(T.T @ Z - T.T @ (J - R) @ T, 'fro')
-    logging.info(f'|T^T Z - T^T (J^(0) - R^(0)) T|_F = {e:.2e}')
+    e = np.linalg.norm(T.T @ Z - T.T @ (J - R) @ T, "fro")
+    logging.info(f"|T^T Z - T^T (J^(0) - R^(0)) T|_F = {e:.2e}")
     e_rel = e / np.linalg.norm(T.T @ Z)
-    logging.info(f'|T^T Z - T^T (J^(0) - R^(0)) T|_F / |T^T Z|_F = {e_rel:.2e}')
+    logging.info(f"|T^T Z - T^T (J^(0) - R^(0)) T|_F / |T^T Z|_F = {e_rel:.2e}")
     if r == n:
-        c = np.linalg.norm(np.linalg.pinv(T.T), 'fro')
-        e0 = np.linalg.norm(Z - (J - R) @ T, 'fro')
-        logging.info(f'|Z - (J^(0) - R^(0)) T|_F = {e0:.2e} <= c |T^T Z - T^T (J^(0) - R^(0)) T|_F = {c * e:.2e}')
-        logging.info(f'with c = {c:.2e}')
+        c = np.linalg.norm(np.linalg.pinv(T.T), "fro")
+        e0 = np.linalg.norm(Z - (J - R) @ T, "fro")
+        logging.info(
+            f"|Z - (J^(0) - R^(0)) T|_F = {e0:.2e} <= c |T^T Z - T^T (J^(0) - R^(0)) T|_F = {c * e:.2e}"
+        )
+        logging.info(f"with c = {c:.2e}")
 
     return J, R
 
 
-def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
+def phdmdh_FGM(
+    data,
+    J0,
+    R0,
+    H0,
+    Q0,
+    use_Berlin,
+    max_iter=20,
+    delta=1e-12,
+    use_cvx=False,
+    n=None,
+    J_known=None,
+):
     r"""
     Iterative algorithm to solve the pHDMD problem via a fast-gradient method
     and the analytic solution of the skew-symmetric Procrustes problem.
@@ -273,7 +288,6 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
     U = data["U"]
     Y = data["Y"]
 
-       
     R = R0
     J = J0
     H = H0
@@ -284,7 +298,7 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
     # Parameters and initialization
     alpha_0 = 0.1  # Parameter of the FGM in (0,1) - can be tuned.
     # for R
-    TTt = T @ T.T    
+    TTt = T @ T.T
     wR, _ = np.linalg.eigh(TTt)
     LR = max(wR)  # Lipschitz constant
     muR = min(wR)
@@ -294,7 +308,7 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
     alphaR[0] = alpha_0
     YrR = R
     # for H
-    if use_Berlin:    
+    if use_Berlin:
         dXdt2T = dXdt @ dXdt.T
         XdXT = X @ dXdt.T
         UdXT = U @ dXdt.T
@@ -327,10 +341,10 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
     # plt.savefig("X.png")
     # plt.figure()
     # plt.plot(dXdt.T)
-    # plt.savefig("dXdt.png")    
+    # plt.savefig("dXdt.png")
 
-    e[0] = np.linalg.norm(Z - (J - R) @ T, 'fro') / np.linalg.norm(Z)
-    logging.info(f'|Z - (J^(0) - R^(0)) T|_F / |Z|_F = {e[0]:.2e}')
+    e[0] = np.linalg.norm(Z - (J - R) @ T, "fro") / np.linalg.norm(Z)
+    logging.info(f"|Z - (J^(0) - R^(0)) T|_F / |Z|_F = {e[0]:.2e}")
 
     for i in range(max_iter):
         # Previous iterate
@@ -340,10 +354,11 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
         Qp = Q
 
         Z_1 = Z + R @ T
-        # Solution of the skew-symmetric Procrustes
-        J, _ = skew_procrustes(T, Z_1)
-
-       
+        if use_cvx:
+            J, _ = skew_cvx(T, Z_1, n, J=J_known)
+        else:
+            # Solution of the skew-symmetric Procrustes
+            J, _ = skew_procrustes(T, Z_1)
 
         Z_2 = J @ T - Z
         # Projected gradient step from Y
@@ -351,11 +366,14 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
         R = project_spsd(YrR - GR / LR)
 
         # FGM Coefficients
-        alphaR[i + 1] = (np.sqrt((alphaR[i] ** 2 - qR) ** 2 + 4 * alphaR[i] ** 2) + (qR - alphaR[i] ** 2)) / 2
+        alphaR[i + 1] = (
+            np.sqrt((alphaR[i] ** 2 - qR) ** 2 + 4 * alphaR[i] ** 2)
+            + (qR - alphaR[i] ** 2)
+        ) / 2
         betaR[i] = alphaR[i] * (1 - alphaR[i]) / (alphaR[i] ** 2 + alphaR[i + 1])
 
         # Linear combination of iterates
-        
+
         YrR = R + betaR[i] * (R - Rp)
 
         # solve spds problem for H or Q
@@ -363,33 +381,45 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
         J_mat, G_mat, _, _ = unstack(J, n, no_feedtrough)
         R_mat, P_mat, _, _ = unstack(R, n, no_feedtrough)
         if use_Berlin:
-            GH = YrH @ dXdt2T - (J_mat-R_mat) @ XdXT - (G_mat-P_mat)@UdXT
-            H = project_spd(YrH - GH / LH)            
+            GH = YrH @ dXdt2T - (J_mat - R_mat) @ XdXT - (G_mat - P_mat) @ UdXT
+            H = project_spd(YrH - GH / LH)
             add_regularization = False
             if add_regularization:
-                eig_vals, eig_vecs = np.linalg.eig(H) 
+                eig_vals, eig_vecs = np.linalg.eig(H)
                 if min(eig_vals) < 1e-10:
-                    H += 1e-10*np.eye(H.shape[0])
-                    logging.info(f"added regularizing diag entries to H. Mininum eigenvalue is {min(eig_vals)}")
+                    H += 1e-10 * np.eye(H.shape[0])
+                    logging.info(
+                        f"added regularizing diag entries to H. Mininum eigenvalue is {min(eig_vals)}"
+                    )
 
             # FGM Coefficients
-            alphaH[i + 1] = (np.sqrt((alphaH[i] ** 2 - qH) ** 2 + 4 * alphaH[i] ** 2) + (qH - alphaH[i] ** 2)) / 2
+            alphaH[i + 1] = (
+                np.sqrt((alphaH[i] ** 2 - qH) ** 2 + 4 * alphaH[i] ** 2)
+                + (qH - alphaH[i] ** 2)
+            ) / 2
             betaH[i] = alphaH[i] * (1 - alphaH[i]) / (alphaH[i] ** 2 + alphaH[i + 1])
             # Linear combination of iterates
             YrH = H + betaH[i] * (H - Hp)
             Z = np.concatenate((H @ dXdt, -Y))
         else:
-            GQ = YrQ @ XXT - (np.linalg.solve((J_mat-R_mat), dXdtXT - (G_mat-P_mat) @ UXT))
-            Q = project_spd(YrQ - GQ / LQ)            
+            GQ = YrQ @ XXT - (
+                np.linalg.solve((J_mat - R_mat), dXdtXT - (G_mat - P_mat) @ UXT)
+            )
+            Q = project_spd(YrQ - GQ / LQ)
             add_regularization = False
-            if add_regularization: 
-                eig_vals, eig_vecs = np.linalg.eig(Q) 
+            if add_regularization:
+                eig_vals, eig_vecs = np.linalg.eig(Q)
                 if min(eig_vals) < 1e-10:
-                    Q += 1e-10*np.eye(Q.shape[0])
-                    logging.info(f"added regularizing diag entries to Q. Mininum eigenvalue is {min(eig_vals)}")
+                    Q += 1e-10 * np.eye(Q.shape[0])
+                    logging.info(
+                        f"added regularizing diag entries to Q. Mininum eigenvalue is {min(eig_vals)}"
+                    )
 
             # FGM Coefficients
-            alphaQ[i + 1] = (np.sqrt((alphaQ[i] ** 2 - qQ) ** 2 + 4 * alphaQ[i] ** 2) + (qQ - alphaQ[i] ** 2)) / 2
+            alphaQ[i + 1] = (
+                np.sqrt((alphaQ[i] ** 2 - qQ) ** 2 + 4 * alphaQ[i] ** 2)
+                + (qQ - alphaQ[i] ** 2)
+            ) / 2
             betaQ[i] = alphaQ[i] * (1 - alphaQ[i]) / (alphaQ[i] ** 2 + alphaQ[i + 1])
             # Linear combination of iterates
             YrQ = Q + betaQ[i] * (Q - Qp)
@@ -399,22 +429,25 @@ def phdmdh_FGM(data, J0, R0, H0, Q0, use_Berlin, max_iter=20, delta=1e-12):
             # wR, _ = np.linalg.eigh(T@T.T)
             # LR = max(wR)  # Lipschitz constant
             # muR = min(wR)
-            # qR = muR / LR       
-        
+            # qR = muR / LR
 
-        e[i + 1] = np.linalg.norm(Z - (J - R) @ T, 'fro') / np.linalg.norm(Z)
-        logging.info(f'|Z - (J^({i + 1}) - R^({i + 1})) T|_F / |Z|_F = {e[i + 1]:.2e}')
+        e[i + 1] = np.linalg.norm(Z - (J - R) @ T, "fro") / np.linalg.norm(Z)
+        logging.info(f"|Z - (J^({i + 1}) - R^({i + 1})) T|_F / |Z|_F = {e[i + 1]:.2e}")
 
-        eps = np.linalg.norm(Jp - J, 'fro') / (np.linalg.norm(J, 'fro')) + \
-              np.linalg.norm(Rp - R, 'fro') / (np.linalg.norm(R, 'fro')) + \
-              np.linalg.norm(Hp - H, 'fro') / (np.linalg.norm(H, 'fro')) + \
-              np.linalg.norm(Qp - Q, 'fro') / (np.linalg.norm(Q, 'fro'))
+        eps = (
+            np.linalg.norm(Jp - J, "fro") / (np.linalg.norm(J, "fro"))
+            + np.linalg.norm(Rp - R, "fro") / (np.linalg.norm(R, "fro"))
+            + np.linalg.norm(Hp - H, "fro") / (np.linalg.norm(H, "fro"))
+            + np.linalg.norm(Qp - Q, "fro") / (np.linalg.norm(Q, "fro"))
+        )
         if eps < delta or np.abs(e[i + 1] - e[i]) < delta:
-            e = e[:i + 2]
-            logging.info(f'Converged after {i + 1} iterations.')
+            e = e[: i + 2]
+            logging.info(f"Converged after {i + 1} iterations.")
             break
 
-        if i == max_iter-1:
-            logging.info(f"PHDMDH has not converged. It has reached the max_iter value {max_iter}.")
+        if i == max_iter - 1:
+            logging.info(
+                f"PHDMDH has not converged. It has reached the max_iter value {max_iter}."
+            )
 
     return J, R, H, Q, e
