@@ -20,6 +20,7 @@ from phdmd.model.msd_rettberg import create_mass_spring_damper_system
 from phdmd.model.poro import poro
 from phdmd.utils.gillis_options import GillisOptions
 
+
 class Experiment:
     """
     Class for experiments.
@@ -68,7 +69,9 @@ class Experiment:
         use_known_J=False,
         use_projection_of_A=False,
         constraint_type="no",
-        gillis_options = None,
+        gillis_options=None,
+        use_energy_weighted_POD=None,
+        ordering="JRH",
     ):
         if methods is None:
             methods = [PHDMDMethod()]
@@ -86,6 +89,8 @@ class Experiment:
         self.use_projection_of_A = use_projection_of_A
         self.constraint_type = constraint_type
         self.gillis_options = gillis_options
+        self.use_energy_weighted_POD = use_energy_weighted_POD
+        self.ordering = ordering
 
         H, J, R, G, P, S, N, Q = fom()
         self.fom = PHLTIModel.from_matrices(J, R, G, P, S, N, E=H, Q=Q)
@@ -138,12 +143,14 @@ use_known_J = False
 use_projection_of_A = False  # project a on snd
 
 # for ABCD inferring with cvx, choose constraints (mostly on A)
-constraint_type = "nsd"  # "KYP"| "KYP_relaxed" | "no" | "nsd" | "nsd"
+constraint_type = "no"  # "KYP"| "KYP_relaxed" | "no" | "nsd" | "nsd"
 
 # for CVXABCDPR
 options = {"standard": 1, "init": 3}
-gillis_options = GillisOptions(options) 
+gillis_options = GillisOptions(options)
 
+# for PHDMDH
+ordering = "JRH"
 
 if perturb_energy_matrix:
     assert HQ_init_strat == "known" or (
@@ -160,7 +167,10 @@ siso_msd_exp = Experiment(
     u_test=lambda t: np.array([sawtooth(2 * np.pi * 0.5 * t)]),
     T_test=np.linspace(0, 10, 251),
     x0_test=np.zeros(6),
-    methods=[PHDMDHMethod()],
+    methods=[
+        PHDMDHMethod(),
+        CVXABCDPRMethod(),
+    ],
     use_Berlin=use_Berlin,
     HQ_init_strat=HQ_init_strat,
     perturb_energy_matrix=perturb_energy_matrix,
@@ -170,6 +180,8 @@ siso_msd_exp = Experiment(
     use_cvx=use_cvx,
     use_known_J=use_known_J,
     use_projection_of_A=use_projection_of_A,
+    constraint_type=constraint_type,
+    gillis_options=gillis_options,
 )
 
 siso_msd_exp_RG = Experiment(
@@ -191,7 +203,10 @@ siso_msd_exp_RG = Experiment(
     u_test=lambda t: np.array([sawtooth(2 * np.pi * 0.5 * t)]),
     T_test=np.linspace(0, 10, 251),
     x0_test=np.zeros(6),
-    methods=[CVXABCDPRMethod()],
+    methods=[
+        PHDMDHMethod(),
+        #  CVXABCDPRMethod(),
+    ],
     use_Berlin=use_Berlin,
     HQ_init_strat=HQ_init_strat,
     perturb_energy_matrix=perturb_energy_matrix,
@@ -201,8 +216,9 @@ siso_msd_exp_RG = Experiment(
     use_cvx=use_cvx,
     use_known_J=use_known_J,
     use_projection_of_A=use_projection_of_A,
-    constraint_type = constraint_type,
-    gillis_options = gillis_options,
+    constraint_type=constraint_type,
+    gillis_options=gillis_options,
+    ordering=ordering,
 )
 
 # siso_msd_exp_1 = Experiment(
@@ -262,7 +278,7 @@ siso_msd_exp_RG = Experiment(
 mimo_msd_exp = Experiment(
     name="MIMO_MSD",
     model="msd",
-    fom=lambda: msd(100, 2),
+    fom=lambda: msd(100, 2, use_Berlin=use_Berlin),
     u=lambda t: np.array(
         [
             np.exp(-0.5 / 100 * t) * np.sin(1 / 100 * t**2),
@@ -278,7 +294,9 @@ mimo_msd_exp = Experiment(
     x0_test=np.zeros(100),
     methods=[
         # CVXABCDPHMethod(),
-        CVXABCDPRMethod(),
+        # CVXABCDPRMethod(),
+        PHDMDMethod(),
+        # PHDMDHMethod(),
     ],  # [OIMethod(), PHDMDMethod()] CVXPHMethod(), CVXABCDMethod()
     use_Berlin=use_Berlin,
     HQ_init_strat=HQ_init_strat,
@@ -290,8 +308,57 @@ mimo_msd_exp = Experiment(
     use_known_J=use_known_J,
     use_projection_of_A=use_projection_of_A,
     constraint_type=constraint_type,
-    gillis_options = gillis_options,
+    gillis_options=gillis_options,
+    ordering=ordering,
 )
+
+
+# create list of different inputs
+n_sim_train = 25
+rng = np.random.default_rng(seed=1)
+deltas = rng.uniform(0.5, 2, size=(n_sim_train,))
+omegas = rng.uniform(0.5, 10, size=(n_sim_train,))
+amplitudes = rng.uniform(0.5, 200, size=(n_sim_train,))
+
+mimo_msd_more_traj_exp = Experiment(
+    name="MIMO_MSD_MORE_TRAJ",
+    model="msd",
+    fom=lambda: msd(100, 2, use_Berlin=use_Berlin),
+    u=[
+        lambda t, delta=delta, omega=omega, amplitude=amplitude: np.array(
+            [
+                amplitude * np.exp(-delta * t) * np.sin(omega * t**2),
+                amplitude * np.exp(-delta * t) * np.cos(omega * t**2),
+            ]
+        )
+        for delta, omega, amplitude in zip(deltas, omegas, amplitudes)
+    ],
+    T=np.linspace(0, 4, 10 * 100 + 1),
+    x0=np.zeros(100),
+    u_test=lambda t: np.array(
+        [sawtooth(2 * np.pi * 0.5 * t), -sawtooth(2 * np.pi * 0.5 * t)]
+    ),
+    T_test=np.linspace(0, 10, 251),
+    x0_test=np.zeros(100),
+    methods=[
+        # CVXABCDPHMethod(),
+        # CVXABCDPRMethod(),
+        PHDMDHMethod(),
+    ],  # [OIMethod(), PHDMDMethod()] CVXPHMethod(), CVXABCDMethod()
+    use_Berlin=use_Berlin,
+    HQ_init_strat=HQ_init_strat,
+    perturb_energy_matrix=perturb_energy_matrix,
+    use_Riccatti_transform=use_Riccatti_transform,
+    perturb_value=perturb_value,
+    use_cholesky_like_fact=use_cholesky_like_fact,
+    use_cvx=use_cvx,
+    use_known_J=use_known_J,
+    use_projection_of_A=use_projection_of_A,
+    constraint_type=constraint_type,
+    gillis_options=gillis_options,
+    ordering=ordering,
+)
+
 
 # poro_exp = Experiment(
 #     name='PORO',
@@ -307,14 +374,16 @@ mimo_msd_exp = Experiment(
 # )
 
 # experiments = [siso_msd_exp, siso_msd_exp_1, siso_msd_exp_2, siso_msd_exp_3, siso_msd_exp_4]
-experiments = [mimo_msd_exp]
+# experiments = [mimo_msd_exp]
 # experiments = [poro_exp]
-# experiments = [siso_msd_exp_RG]
+# experiments = [siso_msd_exp]
+experiments = [siso_msd_exp_RG]
+# experiments = [mimo_msd_more_traj_exp]
 
 save_results = True  # If true all figures will be saved as pdf
 width_pt = 420  # Get this from LaTeX using \the\textwidth
 fraction = 0.49 if save_results else 1  # Fraction of width the figure will occupy
-plot_format = "pdf"
+plot_format = "png"  # pdf | png
 
 colors = np.array(mpl.colormaps["Set1"].colors)
 # delete yello
@@ -325,8 +394,8 @@ working_dir = os.path.dirname(__file__)
 
 
 data_path = os.path.join(working_dir, "../data")
-date_meeting = "20240702"
-path_ending = "cvxabcdpr_firsttry"
+date_meeting = "new_sw_comparison_mimo_msd_pod"
+path_ending = "mimo_msd_pod_2"
 simulations_path = os.path.join(data_path, f"simulations_{date_meeting}_{path_ending}")
 evaluations_path = os.path.join(data_path, f"evaluations_{date_meeting}_{path_ending}")
 plots_path = os.path.join(evaluations_path, "plots")
