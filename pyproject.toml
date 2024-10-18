@@ -18,7 +18,7 @@ dependencies = [
     "numpy>=1.24.2",
     "pymor>=2022.2.0",
     "scipy>=1.10.0",
-    "slycot==0.5.3",
+    "slycot>=0.5.3",
     "tqdm>=4.64.1",
 ]
 keywords = [
@@ -35,9 +35,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[tool.setuptools]
-packages = ["phdmd"]
-package-dir = {"" = "src"}
+# [tool.setuptools]
+# packages = ["phdmd"]
+# package-dir = {"" = "src"}
 
 [project.urls]
 Homepage = "https://github.com/Jonas-Nicodemus/phdmd"
