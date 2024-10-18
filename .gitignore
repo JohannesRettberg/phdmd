@@ -447,3 +447,7 @@ TSWLatexianTemp*
 *.prof
 
 *.pdf
+
+*.npy
+
+*.pickle
