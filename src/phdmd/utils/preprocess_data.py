@@ -4,7 +4,14 @@ import logging
 import control as ct
 
 from pymor.models.iosys import PHLTIModel, LTIModel
+from pymor.vectorarrays.numpy import NumpyVectorSpace
+from pymor.operators.numpy import NumpyMatrixOperator
+from pymor.reductors.basic import LTIPGReductor
+from pymor.basic import project
+from pymor.algorithms.to_matrix import to_matrix
+
 from phdmd.linalg.definiteness import project_spsd, project_spd
+from phdmd.algorithm.hamiltonian_identification import hamiltonian_identification
 
 
 def get_Riccati_transform(fom, get_phlti=False):
@@ -90,7 +97,7 @@ def get_Riccati_transform(fom, get_phlti=False):
         return T
 
 
-def get_initial_energy_matrix(exp):
+def get_initial_energy_matrix(exp, additional_data=None):
 
     HQ_init_strat = exp.HQ_init_strat
 
@@ -105,6 +112,35 @@ def get_initial_energy_matrix(exp):
         elif HQ_init_strat == "known":
             logging.info("Known H0 matrix is used as H initialization.")
             H = exp.H
+        elif HQ_init_strat == "Ham":
+            logging.info(f"Calculating initial energy matrix from Hamiltonian.")
+            X = additional_data["X"]
+            project_bool = additional_data["project"]
+            red_Ham_treshold = 200
+            if X.shape[0] > red_Ham_treshold:
+                # calculation of n^2 not possible
+                VV, S, _ = np.linalg.svd(X, full_matrices=False)
+                # use 200 modes
+                V = NumpyVectorSpace.from_numpy(VV[:, :red_Ham_treshold].T, id="STATE")
+                # reduced data
+                X = to_matrix(
+                    project(NumpyMatrixOperator(X, range_id="STATE"), V, None)
+                )
+                H = to_matrix(
+                    project(
+                        NumpyMatrixOperator(exp.H, source_id="STATE", range_id="STATE"),
+                        V,
+                        V,
+                    )
+                )
+            else:
+                H = exp.H
+            Ham = np.array([X[:, i].T @ H @ X[:, i] for i in range(X.shape[1])])
+            H = hamiltonian_identification(X, Ham, project_bool)
+
+            if X.shape[0] > red_Ham_treshold:
+                # reproject to high-dimensional space
+                H = V.to_numpy().T @ H @ V.to_numpy()
         else:
             raise ValueError(f"Unknown value of HQ_init_strat {HQ_init_strat}")
         Q = None
@@ -116,10 +152,37 @@ def get_initial_energy_matrix(exp):
             logging.info("Random spd Q0 matrix is used as Q initialization.")
             Q = np.random.rand(exp.Q.shape[0], exp.Q.shape[0])
             Q = project_spd(Q)
-            pass
         elif HQ_init_strat == "known":
             logging.info("Known Q0 matrix is used as Q initialization.")
             Q = exp.Q
+        elif HQ_init_strat == "Ham":
+            logging.info(f"Calculating initial energy matrix from Hamiltonian.")
+            X = additional_data["X"]
+            project_bool = additional_data["project"]
+            red_Ham_treshold = 200
+            if X.shape[0] > red_Ham_treshold:
+                # calculation of n^2 not possible
+                VV, S, _ = np.linalg.svd(X, full_matrices=False)
+                # use 200 modes
+                V = NumpyVectorSpace.from_numpy(VV[:, :red_Ham_treshold].T, id="STATE")
+                # reduced data
+                X = to_matrix(
+                    project(NumpyMatrixOperator(X, range_id="STATE"), V, None)
+                )
+                Q = to_matrix(
+                    project(
+                        NumpyMatrixOperator(exp.Q, source_id="STATE", range_id="STATE"),
+                        V,
+                        V,
+                    )
+                )
+            else:
+                Q = exp.Q
+            Ham = np.array([X[:, i].T @ exp.Q @ X[:, i] for i in range(X.shape[1])])
+            Q = hamiltonian_identification(X, Ham, project_bool)
+            if X.shape[0] > red_Ham_treshold:
+                # reproject to high-dimensional space
+                Q = V.to_numpy().T @ Q @ V.to_numpy()
         else:
             raise ValueError(f"Unknown value of HQ_init_strat {HQ_init_strat}")
         H = None
