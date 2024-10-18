@@ -53,7 +53,7 @@ def spsd_procrustes(X, Y, A0=None, max_iter=1000):
 
     B = A
     alpha[0] = alpha0
-    e[0] = np.linalg.norm(A @ X - Y, 'fro')
+    e[0] = np.linalg.norm(A @ X - Y, "fro")
 
     for i in range(max_iter):
         # Previous iterate
@@ -63,13 +63,16 @@ def spsd_procrustes(X, Y, A0=None, max_iter=1000):
         A = project_spsd(B - (B @ XXt - YXt) / Lx)
 
         # FGM Coefficients
-        alpha[i + 1] = (np.sqrt((alpha[i] ** 2 - qx) ** 2 + 4 * alpha[i] ** 2) + (qx - alpha[i] ** 2)) / 2
+        alpha[i + 1] = (
+            np.sqrt((alpha[i] ** 2 - qx) ** 2 + 4 * alpha[i] ** 2)
+            + (qx - alpha[i] ** 2)
+        ) / 2
         beta[i] = alpha[i] * (1 - alpha[i]) / (alpha[i] ** 2 + alpha[i + 1])
 
         # Linear combination of iterates
         B = A + beta[i] * (A - Ap)
 
-        e[i + 1] = np.linalg.norm(A @ X - Y, 'fro')
+        e[i + 1] = np.linalg.norm(A @ X - Y, "fro")
 
     return A, e
 
@@ -98,7 +101,7 @@ def init_spsd_procrustes(X, Y):
     for i in range(n):
         A0[i, i] = max(0, X[i, :] @ Y[i, :].T) / np.linalg.norm(X[i, :]) ** 2 + 1e-6
 
-    e0 = np.linalg.norm(A0 @ X - Y, 'fro')
+    e0 = np.linalg.norm(A0 @ X - Y, "fro")
 
     return A0, e0
 
@@ -121,9 +124,9 @@ if __name__ == "__main__":
 
     A_proc, e = spsd_procrustes(X, Y, A0=A0, max_iter=200)
 
-    e_rel = e / np.linalg.norm(Y, 'fro')
+    e_rel = e / np.linalg.norm(Y, "fro")
     plt.semilogy(e_rel)
     plt.show()
 
-    logging.info(f'||Y - AX||_F = {e[-1]:.2e}')
-    logging.info(f'||Y - AX||_F / ||Y||_F = {e_rel[-1]:.2e}')
+    logging.info(f"||Y - AX||_F = {e[-1]:.2e}")
+    logging.info(f"||Y - AX||_F / ||Y||_F = {e_rel[-1]:.2e}")

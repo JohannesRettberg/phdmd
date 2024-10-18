@@ -4,6 +4,7 @@ import time
 import logging
 
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.models.iosys import LTIModel, PHLTIModel
@@ -60,15 +61,12 @@ def discretize(lti, U, T, x0, method="implicit_midpoint", return_dXdt=False):
     else:
         n_u = U_temp.shape[0]
 
+    X = np.zeros((lti.order, len(T), n_scenarios))
+    U = np.zeros((n_u, len(T), n_scenarios))
+    Y = np.zeros((n_u, len(T), n_scenarios))
     if return_dXdt:
-        X = np.zeros((lti.order, len(T), n_scenarios))
-        U = np.zeros((n_u, len(T), n_scenarios))
-        Y = np.zeros((n_u, len(T), n_scenarios))
         dXdt = np.zeros((lti.order, len(T), n_scenarios))
-    else:
-        X = np.zeros((lti.order, len(T), n_scenarios))
-        U = np.zeros((n_u, len(T), n_scenarios))
-        Y = np.zeros((n_u, len(T), n_scenarios))
+
     for i_scenario in range(n_scenarios):
         if U_is_list:
             U_temp = U_list[i_scenario]
@@ -123,6 +121,17 @@ def discretize(lti, U, T, x0, method="implicit_midpoint", return_dXdt=False):
                     U[:, :, i_scenario], X[:, :, i_scenario], Y[:, :, i_scenario] = (
                         scipy_solve_ivp(lti, U_temp, T, x0, method, return_dXdt)
                     )
+
+    # plot inputs for debugging
+    # plt.figure()
+    for i in range(n_scenarios):
+        plt.figure()
+        plt.plot(T, U[:, :, i].T)
+        plt.title("Inputs")
+        plt.xlabel("Time [s]")
+        plt.show(block=False)
+        plt.savefig(f"inputs_debug{i}.png")
+
     if return_dXdt:
         return (
             np.reshape(np.transpose(U, (0, 2, 1)), (n_u, len(T) * n_scenarios)),
