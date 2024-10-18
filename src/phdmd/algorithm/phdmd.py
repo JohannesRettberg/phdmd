@@ -17,7 +17,7 @@ def phdmd(
     H=None,
     J0=None,
     R0=None,
-    max_iter=1000,
+    max_iter=10,
     delta=1e-12,
     use_cvx=False,
     J_known=None,
@@ -90,9 +90,11 @@ def phdmd(
     if dXdt is None:
         assert delta_t is not None
         dXdt = (X[:, 1:] - X[:, :-1]) / delta_t
-        X = 1 / 2 * (X[:, 1:] + X[:, :-1])
-        U = 1 / 2 * (U[:, 1:] + U[:, :-1])
-        Y = 1 / 2 * (Y[:, 1:] + Y[:, :-1])
+    else:
+        dXdt = dXdt[:, 1:] - dXdt[:, :-1]
+    X = 1 / 2 * (X[:, 1:] + X[:, :-1])
+    U = 1 / 2 * (U[:, 1:] + U[:, :-1])
+    Y = 1 / 2 * (Y[:, 1:] + Y[:, :-1])
 
     # TODO: remove this part
     from matplotlib import pyplot as plt
@@ -125,7 +127,7 @@ def phdmd(
 
     # pHDMD algorithm
     J, R, e = phdmd_FGM(
-        T, Z, J, R, max_iter, delta, use_cvx=use_cvx, n=X.shape[0], J=J_known
+        T, Z, J, R, max_iter, delta, use_cvx=use_cvx, n=X.shape[0], J_known=J_known
     )
 
     return J, R, e
