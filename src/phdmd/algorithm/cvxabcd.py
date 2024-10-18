@@ -83,7 +83,7 @@ def cvxabcd(
     # problem_state.solve()
     # problem_output.solve()
     problem_overall = cp.Problem(min_problem_overall, constraints)
-    problem_overall.solve()
+    problem_overall.solve(verbose=True)
 
     # check neg. def
     logging.info(f"Checking eigenvalues...")

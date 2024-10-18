@@ -215,3 +215,8 @@ def evaluate(
     # H-norm calculation fails for the poro benchmark system
     # if exp.model != "poro":
     # h_norm(lti_list[0], lti_list[1:], labels[1:], compute_hinf=compute_hinf)
+
+
+class Evaluation:
+    def __init__(self) -> None:
+        pass
