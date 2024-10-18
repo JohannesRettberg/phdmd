@@ -75,11 +75,26 @@ class PHDMDHMethod(Method):
         super().__init__("pHDMDH")
 
     def __call__(
-        self, X, Y, U, delta_t, use_Berlin, H=None, Q=None, use_cvx=False, J_known=None
+        self,
+        X,
+        Y,
+        U,
+        delta_t,
+        use_Berlin,
+        H=None,
+        Q=None,
+        use_cvx=False,
+        J_known=None,
+        **kwargs,
     ):
         # H not needed but used to be in accordance with other methods calling
         n = X.shape[0]
-        max_iter = 1000
+        max_iter = 10
+        if "ordering" in kwargs:
+            ordering = kwargs["ordering"]
+        else:
+            ordering = "JRH"
+
         J, R, H, Q, e = phdmdh(
             X,
             Y,
@@ -91,6 +106,7 @@ class PHDMDHMethod(Method):
             max_iter=max_iter,
             use_cvx=use_cvx,
             J_known=J_known,
+            ordering=ordering,
         )
         phlti = to_phlti(J, R, n=n, E=H, Q=Q, no_feedtrough=True)
 
@@ -136,11 +152,13 @@ class CVXABCDPHMethod(Method):
 
         return phlti
 
+
 class CVXABCDPRMethod(Method):
     def __init__(self):
         super().__init__("CVXABCDPR")
-    
-    def __call__(        self,
+
+    def __call__(
+        self,
         X,
         Y,
         U,
@@ -151,7 +169,8 @@ class CVXABCDPRMethod(Method):
         use_cvx=False,
         J_known=None,
         constraint_type="no",
-        **kwargs):
+        **kwargs,
+    ):
 
         if "gillis_options" in kwargs:
             gillis_options = kwargs["gillis_options"]
@@ -165,7 +184,7 @@ class CVXABCDPRMethod(Method):
             delta_t=delta_t,
             # delta=delta,
             constraint_type=constraint_type,  # "KYP" | "no" | "nsd" | "nsd"):
-            gillis_options = gillis_options,
+            gillis_options=gillis_options,
         )
 
         return phlti

@@ -28,6 +28,7 @@ def phdmdh(
     delta=1e-12,
     use_cvx=False,
     J_known=None,
+    ordering="JRH",
 ):
     r"""
     The pHDMD algorithm identifies a port-Hamiltonian system from state, output and input measurements.
@@ -108,7 +109,7 @@ def phdmdh(
     # e = np.array([np.inf])
     # while e[-1] > 1e-3:
 
-    logging.info("Perform pHDMD")
+    logging.info("Perform pHDMDH")
     if use_Berlin:
         assert H0 is not None
         H = H0
@@ -159,6 +160,7 @@ def phdmdh(
         use_cvx=use_cvx,
         n=X.shape[0],
         J_known=J_known,
+        ordering=ordering,
     )
 
     return J, R, H, Q, e
@@ -189,7 +191,7 @@ def phdmd_init(T, Z, tol=1e-12):
         Dissipation matrix.
     """
 
-    logging.info("pHDMD Initialization")
+    logging.info("pHDMDH Initialization")
 
     n, m = T.shape
 
@@ -249,6 +251,7 @@ def phdmdh_FGM(
     use_cvx=False,
     n=None,
     J_known=None,
+    ordering="JRH",
 ):
     r"""
     Iterative algorithm to solve the pHDMD problem via a fast-gradient method
@@ -279,7 +282,9 @@ def phdmdh_FGM(
         Value of the cost functional at each iteration.
     """
 
-    logging.info("pHDMD Algorithm")
+    assert len(ordering) == 3
+
+    logging.info(f"pHDMDH Algorithm with ordering {ordering}.")
 
     X = data["X"]
     dXdt = data["dXdt"]
@@ -353,83 +358,54 @@ def phdmdh_FGM(
         Hp = H
         Qp = Q
 
-        Z_1 = Z + R @ T
-        if use_cvx:
-            J, _ = skew_cvx(T, Z_1, n, J=J_known)
-        else:
-            # Solution of the skew-symmetric Procrustes
-            J, _ = skew_procrustes(T, Z_1)
-
-        Z_2 = J @ T - Z
-        # Projected gradient step from Y
-        GR = YrR @ T @ T.T - Z_2 @ T.T
-        R = project_spsd(YrR - GR / LR)
-
-        # FGM Coefficients
-        alphaR[i + 1] = (
-            np.sqrt((alphaR[i] ** 2 - qR) ** 2 + 4 * alphaR[i] ** 2)
-            + (qR - alphaR[i] ** 2)
-        ) / 2
-        betaR[i] = alphaR[i] * (1 - alphaR[i]) / (alphaR[i] ** 2 + alphaR[i + 1])
-
-        # Linear combination of iterates
-
-        YrR = R + betaR[i] * (R - Rp)
-
-        # solve spds problem for H or Q
-        no_feedtrough = True
-        J_mat, G_mat, _, _ = unstack(J, n, no_feedtrough)
-        R_mat, P_mat, _, _ = unstack(R, n, no_feedtrough)
-        if use_Berlin:
-            GH = YrH @ dXdt2T - (J_mat - R_mat) @ XdXT - (G_mat - P_mat) @ UdXT
-            H = project_spd(YrH - GH / LH)
-            add_regularization = False
-            if add_regularization:
-                eig_vals, eig_vecs = np.linalg.eig(H)
-                if min(eig_vals) < 1e-10:
-                    H += 1e-10 * np.eye(H.shape[0])
-                    logging.info(
-                        f"added regularizing diag entries to H. Mininum eigenvalue is {min(eig_vals)}"
+        for character in ordering:
+            if character.lower() == "j":
+                J = calculate_J(Z, T, R, J_known, use_cvx, n)
+            elif character.lower() == "r":
+                R, YrR, betaR, alphaR = calculate_R(
+                    Z, T, J, YrR, LR, alphaR, qR, Rp, betaR, i
+                )
+            elif character.lower() == "h" or character.lower() == "q":
+                if use_Berlin:
+                    H, YrH, alphaH, betaH, Z = calculate_H(
+                        J,
+                        R,
+                        n,
+                        YrH,
+                        dXdt2T,
+                        XdXT,
+                        UdXT,
+                        LH,
+                        alphaH,
+                        qH,
+                        betaH,
+                        Hp,
+                        dXdt,
+                        Y,
+                        i,
                     )
-
-            # FGM Coefficients
-            alphaH[i + 1] = (
-                np.sqrt((alphaH[i] ** 2 - qH) ** 2 + 4 * alphaH[i] ** 2)
-                + (qH - alphaH[i] ** 2)
-            ) / 2
-            betaH[i] = alphaH[i] * (1 - alphaH[i]) / (alphaH[i] ** 2 + alphaH[i + 1])
-            # Linear combination of iterates
-            YrH = H + betaH[i] * (H - Hp)
-            Z = np.concatenate((H @ dXdt, -Y))
-        else:
-            GQ = YrQ @ XXT - (
-                np.linalg.solve((J_mat - R_mat), dXdtXT - (G_mat - P_mat) @ UXT)
-            )
-            Q = project_spd(YrQ - GQ / LQ)
-            add_regularization = False
-            if add_regularization:
-                eig_vals, eig_vecs = np.linalg.eig(Q)
-                if min(eig_vals) < 1e-10:
-                    Q += 1e-10 * np.eye(Q.shape[0])
-                    logging.info(
-                        f"added regularizing diag entries to Q. Mininum eigenvalue is {min(eig_vals)}"
+                else:
+                    Q, YrQ, alphaQ, betaQ, T = calculate_Q(
+                        J,
+                        R,
+                        n,
+                        YrQ,
+                        XXT,
+                        dXdtXT,
+                        UXT,
+                        LQ,
+                        alphaQ,
+                        qQ,
+                        betaQ,
+                        Qp,
+                        X,
+                        U,
+                        i,
                     )
-
-            # FGM Coefficients
-            alphaQ[i + 1] = (
-                np.sqrt((alphaQ[i] ** 2 - qQ) ** 2 + 4 * alphaQ[i] ** 2)
-                + (qQ - alphaQ[i] ** 2)
-            ) / 2
-            betaQ[i] = alphaQ[i] * (1 - alphaQ[i]) / (alphaQ[i] ** 2 + alphaQ[i + 1])
-            # Linear combination of iterates
-            YrQ = Q + betaQ[i] * (Q - Qp)
-            T = np.concatenate((Q @ X, U))
-
-            # Recalculate T-parameters?????
-            # wR, _ = np.linalg.eigh(T@T.T)
-            # LR = max(wR)  # Lipschitz constant
-            # muR = min(wR)
-            # qR = muR / LR
+            else:
+                raise ValueError(
+                    f"The ordering input can only contain the letters J,R and Q or H. Instead the letter {character} was given."
+                )
 
         e[i + 1] = np.linalg.norm(Z - (J - R) @ T, "fro") / np.linalg.norm(Z)
         logging.info(f"|Z - (J^({i + 1}) - R^({i + 1})) T|_F / |Z|_F = {e[i + 1]:.2e}")
@@ -451,3 +427,96 @@ def phdmdh_FGM(
             )
 
     return J, R, H, Q, e
+
+
+def calculate_J(Z, T, R, J_known, use_cvx, n):
+    Z_1 = Z + R @ T
+    if use_cvx:
+        J, _ = skew_cvx(T, Z_1, n, J=J_known)
+    else:
+        # Solution of the skew-symmetric Procrustes
+        J, _ = skew_procrustes(T, Z_1)
+
+    return J
+
+
+def calculate_R(Z, T, J, YrR, LR, alphaR, qR, Rp, betaR, i):
+    Z_2 = J @ T - Z
+    # Projected gradient step from Y
+    GR = YrR @ T @ T.T - Z_2 @ T.T
+    R = project_spsd(YrR - GR / LR)
+
+    # FGM Coefficients
+    alphaR[i + 1] = (
+        np.sqrt((alphaR[i] ** 2 - qR) ** 2 + 4 * alphaR[i] ** 2) + (qR - alphaR[i] ** 2)
+    ) / 2
+    betaR[i] = alphaR[i] * (1 - alphaR[i]) / (alphaR[i] ** 2 + alphaR[i + 1])
+
+    # Linear combination of iterates
+
+    YrR = R + betaR[i] * (R - Rp)
+
+    return R, YrR, betaR, alphaR
+
+
+def calculate_H(
+    J, R, n, YrH, dXdt2T, XdXT, UdXT, LH, alphaH, qH, betaH, Hp, dXdt, Y, i
+):
+    no_feedtrough = True
+    J_mat, G_mat, _, _ = unstack(J, n, no_feedtrough)
+    R_mat, P_mat, _, _ = unstack(R, n, no_feedtrough)
+
+    GH = YrH @ dXdt2T - (J_mat - R_mat) @ XdXT - (G_mat - P_mat) @ UdXT
+    H = project_spd(YrH - GH / LH)
+    add_regularization = False
+    if add_regularization:
+        eig_vals, eig_vecs = np.linalg.eig(H)
+        if min(eig_vals) < 1e-10:
+            H += 1e-10 * np.eye(H.shape[0])
+            logging.info(
+                f"added regularizing diag entries to H. Mininum eigenvalue is {min(eig_vals)}"
+            )
+
+    # FGM Coefficients
+    alphaH[i + 1] = (
+        np.sqrt((alphaH[i] ** 2 - qH) ** 2 + 4 * alphaH[i] ** 2) + (qH - alphaH[i] ** 2)
+    ) / 2
+    betaH[i] = alphaH[i] * (1 - alphaH[i]) / (alphaH[i] ** 2 + alphaH[i + 1])
+    # Linear combination of iterates
+    YrH = H + betaH[i] * (H - Hp)
+    Z = np.concatenate((H @ dXdt, -Y))
+
+    return H, YrH, alphaH, betaH, Z
+
+
+def calculate_Q(J, R, n, YrQ, XXT, dXdtXT, UXT, LQ, alphaQ, qQ, betaQ, Qp, X, U, i):
+    no_feedtrough = True
+    J_mat, G_mat, _, _ = unstack(J, n, no_feedtrough)
+    R_mat, P_mat, _, _ = unstack(R, n, no_feedtrough)
+    GQ = YrQ @ XXT - (np.linalg.solve((J_mat - R_mat), dXdtXT - (G_mat - P_mat) @ UXT))
+    Q = project_spd(YrQ - GQ / LQ)
+    add_regularization = False
+    if add_regularization:
+        eig_vals, eig_vecs = np.linalg.eig(Q)
+        if min(eig_vals) < 1e-10:
+            Q += 1e-10 * np.eye(Q.shape[0])
+            logging.info(
+                f"added regularizing diag entries to Q. Mininum eigenvalue is {min(eig_vals)}"
+            )
+
+    # FGM Coefficients
+    alphaQ[i + 1] = (
+        np.sqrt((alphaQ[i] ** 2 - qQ) ** 2 + 4 * alphaQ[i] ** 2) + (qQ - alphaQ[i] ** 2)
+    ) / 2
+    betaQ[i] = alphaQ[i] * (1 - alphaQ[i]) / (alphaQ[i] ** 2 + alphaQ[i + 1])
+    # Linear combination of iterates
+    YrQ = Q + betaQ[i] * (Q - Qp)
+    T = np.concatenate((Q @ X, U))
+
+    # Recalculate T-parameters?????
+    # wR, _ = np.linalg.eigh(T@T.T)
+    # LR = max(wR)  # Lipschitz constant
+    # muR = min(wR)
+    # qR = muR / LR
+
+    return Q, YrQ, alphaQ, betaQ, T
