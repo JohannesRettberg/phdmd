@@ -6,7 +6,7 @@ import numpy as np
 import config
 
 
-def fig_size(width_pt, fraction=1, ratio=(5 ** .5 - 1) / 2, subplots=(1, 1)):
+def fig_size(width_pt, fraction=1, ratio=(5**0.5 - 1) / 2, subplots=(1, 1)):
     """
     Returns the width and heights in inches for a matplotlib figure.
 
@@ -44,7 +44,7 @@ def fig_size(width_pt, fraction=1, ratio=(5 ** .5 - 1) / 2, subplots=(1, 1)):
     return fig_width_in, fig_height_in
 
 
-def new_fig(width_pt=420, fraction=1 / 2, ratio=(5 ** .5 - 1) / 2, subplots=(1, 1)):
+def new_fig(width_pt=420, fraction=1 / 2, ratio=(5**0.5 - 1) / 2, subplots=(1, 1)):
     """
     Creates new instance of a `matplotlib.pyplot.figure` by using the `fig_size` function.
 
@@ -70,10 +70,28 @@ def new_fig(width_pt=420, fraction=1 / 2, ratio=(5 ** .5 - 1) / 2, subplots=(1, 
     return fig
 
 
-def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
-         xlabel=None, ylabel=None, legend='best', grid=False, xscale='linear', yscale='linear',
-         xlim=None, ylim=None, subplots=True,
-         fraction=1, ratio=(5 ** .5 - 1) / 2, name=None):
+def plot(
+    X,
+    Y,
+    label=None,
+    ls=None,
+    marker=None,
+    c=None,
+    markevery=None,
+    xlabel=None,
+    ylabel=None,
+    legend="best",
+    grid=False,
+    xscale="linear",
+    yscale="linear",
+    xlim=None,
+    ylim=None,
+    subplots=True,
+    fraction=1,
+    ratio=(5**0.5 - 1) / 2,
+    name=None,
+    save_path=None,
+):
     """
     Plots a trajectory.
 
@@ -135,7 +153,7 @@ def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
 
     if label is None:
         legend = False
-        label = np.empty(Y.shape[:2], dtype='object')
+        label = np.empty(Y.shape[:2], dtype="object")
 
     if isinstance(label, str):
         label = np.array([label])
@@ -154,7 +172,7 @@ def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
         #         label[i, 0] = f'{label[i, 0]}'
 
     if ls is None:
-        ls = np.empty(Y.shape[:2], dtype='object')
+        ls = np.empty(Y.shape[:2], dtype="object")
 
     if isinstance(ls, list):
         ls = np.array(ls)
@@ -164,7 +182,7 @@ def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
         ls = np.tile(ls, (1, Y.shape[1]))
 
     if marker is None:
-        marker = np.empty(Y.shape[:2], dtype='object')
+        marker = np.empty(Y.shape[:2], dtype="object")
 
     if isinstance(marker, list):
         marker = np.array(marker)
@@ -174,7 +192,7 @@ def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
         marker = np.tile(marker, (1, Y.shape[1]))
 
     if c is None:
-        c = np.empty(Y.shape[:2], dtype='object')
+        c = np.empty(Y.shape[:2], dtype="object")
 
     if isinstance(c, list):
         c = np.array(c)
@@ -201,44 +219,79 @@ def plot(X, Y, label=None, ls=None, marker=None, c=None, markevery=None,
     ax.set_yscale(yscale)
 
     if subplots:
-        figs = np.empty(Y.shape[1], dtype='object')
-        axes = np.empty(Y.shape[1], dtype='object')
-        figs[0] = fig
-        axes[0] = ax
+        # figs = np.empty(Y.shape[1], dtype='object')
+        # axes = np.empty(Y.shape[1], dtype='object')
+        # figs[0] = fig
+        # axes[0] = ax
 
-        for i in range(Y.shape[1]-1):
-            figs[i+1] = new_fig(width_pt=config.width_pt, fraction=fraction, ratio=ratio)
-            axes[i+1] = figs[i+1].add_subplot(1, 1, 1)
-            axes[i+1].set_title(ylabel)
-            axes[i+1].set(xlim=[np.min(X), np.max(X)])
-            axes[i+1].set(xlabel=xlabel, ylabel=ylabel)
-            axes[i+1].set_yscale(yscale)
+        # for i in range(Y.shape[1]-1):
+        #     figs[i+1] = new_fig(width_pt=config.width_pt, fraction=fraction, ratio=ratio)
+        #     axes[i+1] = figs[i+1].add_subplot(1, 1, 1)
+        #     axes[i+1].set_title(ylabel)
+        #     axes[i+1].set(xlim=[np.min(X), np.max(X)])
+        #     axes[i+1].set(xlabel=xlabel, ylabel=ylabel)
+        #     axes[i+1].set_yscale(yscale)
+        if Y.shape[1] == 1:
+            # only one plot
+            subplots = False
+        else:
+            fig, ax = plt.subplots(
+                Y.shape[1],
+                figsize=fig_size(
+                    width_pt=420,
+                    fraction=1,
+                    ratio=(5**0.5 - 1) / 2,
+                    subplots=(Y.shape[1], 1),
+                ),
+            )
+            for j in range(Y.shape[1]):
+                ax[j].set_title(ylabel)
+                ax[j].set(xlim=[np.min(X), np.max(X)])
+                ax[j].set(xlabel=xlabel, ylabel=ylabel)
+                ax[j].set_yscale(yscale)
 
     for i in range(Y.shape[0]):
         for j in range(Y.shape[1]):
             if subplots:
-                axes[j].plot(X[i], Y[i, j], label=label[i, j], ls=ls[i, j],
-                             marker=marker[i,j], c=c[i, j], markevery=markevery)
+
+                ax[j].plot(
+                    X[i],
+                    Y[i, j],
+                    label=label[i, j],
+                    ls=ls[i, j],
+                    marker=marker[i, j],
+                    c=c[i, j],
+                    markevery=markevery,
+                )
             else:
-                ax.plot(X[i], Y[i, j], label=label[i, j], ls=ls[i, j],
-                        marker=marker[i,j], c=c[i, j], markevery=markevery)
+                ax.plot(
+                    X[i],
+                    Y[i, j],
+                    label=label[i, j],
+                    ls=ls[i, j],
+                    marker=marker[i, j],
+                    c=c[i, j],
+                    markevery=markevery,
+                )
 
     if legend is not None:
-        ax.legend(loc=legend)
         if subplots:
-            for i in range(Y.shape[1] - 1):
-                axes[i + 1].legend(loc=legend)
+            for i in range(Y.shape[1]):
+                ax[i].legend(loc=legend)
+        else:
+            ax.legend(loc=legend)
 
     if grid is True:
-        ax.grid(True)
         if subplots:
-            for i in range(Y.shape[1] - 1):
-                axes[i + 1].grid(True)
+            for i in range(Y.shape[1]):
+                ax[i].grid(True)
+        else:
+            ax.grid(True)
 
-    process_fig(ax, fig, name)
+    process_fig(ax, fig, name, save_path=save_path)
 
 
-def process_fig(ax, fig, name):
+def process_fig(ax, fig, name, save_path=None):
     """
     Shows or save the figure.
 
@@ -252,8 +305,13 @@ def process_fig(ax, fig, name):
         Name of the figure.
     """
     if config.save_results:
-        ax.set_title('')
+        if save_path:
+            plots_path = save_path
+        else:
+            plots_path = config.plots_path
+        if not (isinstance(ax, np.ndarray)):
+            ax.set_title("")
         fig.tight_layout(pad=0.5)
-        fig.savefig(os.path.join(config.plots_path, f'{name}.{config.plot_format}'))
+        fig.savefig(os.path.join(plots_path, f"{name}.{config.plot_format}"))
     else:
         plt.show()
