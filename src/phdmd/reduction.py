@@ -23,9 +23,13 @@ from phdmd.utils.modal_properties import (
     compare_eigenmodes,
     eigenvalue_comparison_from_lti_dicts,
 )
-from phdmd.algorithm.methods import CVXABCDPHMethod, CVXABCDPRMethod
+from phdmd.algorithm.methods import CVXABCDPHMethod, CVXABCDPRMethod, PHDMDHMethod
 from phdmd.data.data import Data
+from phdmd.evaluation.result import Result
+from phdmd.discretization.reprojection import reproject
 
+
+from phdmd.algorithm.hamiltonian_identification import test_hamiltonian_identification
 
 import cProfile
 import pstats
@@ -51,9 +55,12 @@ def main():
         os.makedirs(config.evaluations_path)
 
     exp = config.mimo_msd_exp
+    # exp = config.mimo_msd_more_traj_exp
     logging.info(f"Experiment: {exp.name}")
 
-    reduced_orders = np.array([18])  # np.array([10, 16, 22, 28])  # np.array(
+    # test_hamiltonian_identification()
+
+    reduced_orders = np.array([16])  # np.array([10, 16, 22, 28])  # np.array(
     # [10, 12, 14]
     # )  # np.array(range(2, 102, 10))  # np.array(range(2, 102, 2))
     noise_levels = np.array([None])  # np.array([None, 1e-4, 1e-6])
@@ -64,7 +71,8 @@ def main():
     hinf_norms = np.zeros((len(reduced_orders), num_methods * len(noise_levels)))
     labels = np.empty(num_methods * len(noise_levels), dtype=object)
 
-    use_energy_weighted_POD = False  # [True, False]
+    use_energy_weighted_POD = True  # [True, False]
+    use_reprojection = False
     experiment_name = f"{exp.name}_ePOD{use_energy_weighted_POD}_h_norms"
 
     error_list = []
@@ -86,12 +94,12 @@ def main():
 
             logging.info(f"State dimension n={n}")
 
-            if exp.use_Riccatti_transform:
-                T = get_Riccati_transform(exp)
+            # if exp.use_Riccatti_transform:
+            #     T = get_Riccati_transform(exp)
 
-            H, Q = get_initial_energy_matrix(exp)
-            if exp.perturb_energy_matrix:
-                H, Q = perturb_initial_energy_matrix(exp, H, Q)
+            # H, Q = get_initial_energy_matrix(exp)
+            # if exp.perturb_energy_matrix:
+            #     H, Q = perturb_initial_energy_matrix(exp, H, Q)
 
             if exp.use_known_J:
                 assert exp.use_cvx
@@ -99,17 +107,54 @@ def main():
             else:
                 J_known = None
 
+            # write energy-weighted POD to experiment
+            exp.use_energy_weighted_POD = use_energy_weighted_POD
+
             # Set noise for the experiment
             exp.noise = noise
             # Generate/Load training data
-            X_train, Y_train, U_train = generate(exp)
+            # X_train, Y_train, U_train = generate(exp)
+            data_train = Data.from_experiment(exp)
             # test data
-            U_test, X_test, Y_test = sim(
+            # U_test, X_test, Y_test = sim(
+            #     exp.fom, exp.u_test, exp.T_test, exp.x0_test, method=exp.time_stepper
+            # )
+            data_test = Data.from_fom(
                 exp.fom, exp.u_test, exp.T_test, exp.x0_test, method=exp.time_stepper
             )
 
             if exp.use_Riccatti_transform:
-                X_train = T @ X_train
+                # X_train = T @ X_train
+                data_train.get_Riccati_transform()
+
+            X_train, Y_train, U_train = data_train.data
+            # X_test, Y_test, U_test = data_test.data
+
+            # exp.Q = np.array(
+            #     [
+            #         [4, 0, -4, 0, 0, 0],
+            #         [0, 1 / 4, 0, 0, 0, 0],
+            #         [-4, 0, 8, 0, -4, 0],
+            #         [0, 0, 0, 1 / 4, 0, 0],
+            #         [0, 0, -4, 0, 8, 0],
+            #         [0, 0, 0, 0, 0, 1 / 4],
+            #     ]
+            # )
+            # n = 6
+            # X_train = np.random.rand(6, 30)
+
+            additional_data_init = {}
+            if exp.HQ_init_strat == "Ham":
+                additional_data_init["X"] = X_train[:, :]
+                additional_data_init["project"] = False
+
+            data_train.get_initial_energy_matrix(
+                exp, additional_data=additional_data_init
+            )
+            if exp.perturb_energy_matrix:
+                data_train.perturb_initial_energy_matrix(exp)
+
+            H, Q = data_train.initial_energy_matrix
 
             h2_norms_i = np.zeros((len(reduced_orders), num_methods))
             hinf_norms_i = np.zeros((len(reduced_orders), num_methods))
@@ -132,12 +177,14 @@ def main():
                     S=S,
                 )
             else:
+                # load POD basis
                 POD_npz = np.load(
                     os.path.join(config.simulations_path, exp.name + "_POD.npz")
                 )
                 VV = POD_npz["VV"]
                 S = POD_npz["S"]
 
+            # projection error for full basis
             if use_energy_weighted_POD:
                 X_train_projected_energy = VV @ np.transpose(VV) @ H @ X_train
                 proj_error_train_energy_fro = np.linalg.norm(
@@ -159,8 +206,136 @@ def main():
             for j, r in enumerate(tqdm(reduced_orders)):
                 lti_dict = {}
 
-                V = NumpyVectorSpace.from_numpy(VV[:, :r].T, id="STATE")
+                if use_Berlin:
+                    # Berlin form
+                    if use_energy_weighted_POD:
+                        # Berlin + ePOD
+                        pod_type = "ePOD"
+                        V = NumpyVectorSpace.from_numpy(VV[:, :r].T, id="STATE")
+                        VH = NumpyVectorSpace.from_numpy(VV[:, :r].T @ H, id="STATE")
+                        X_train_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(X_train, range_id="STATE"), VH, None
+                            )
+                        )
+                        # project initial condition
+                        exp.x0_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(
+                                    exp.x0_test[:, np.newaxis], range_id="STATE"
+                                ),
+                                VH,
+                                None,
+                            )
+                        )
+                        exp.x0_test_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(
+                                    exp.x0_test[:, np.newaxis], range_id="STATE"
+                                ),
+                                VH,
+                                None,
+                            )
+                        )
+                        H_red = np.eye(r)
+                        pg_reductor = LTIPGReductor(exp.fom, VH, V)
+                    else:
+                        # Berlin + POD
+                        pod_type = "POD"
+                        V = NumpyVectorSpace.from_numpy(VV[:, :r].T, id="STATE")
+                        H_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(
+                                    H, source_id="STATE", range_id="STATE"
+                                ),
+                                V,
+                                V,
+                            )
+                        )
+                        if use_reprojection:
+                            U, X_train_red, Y = reproject(
+                                exp, V, method="implicit_midpoint", return_dXdt=False
+                            )
+
+                            exp.x0_red = X_train_red[:, 0]
+                            # reproject x0_test???
+                            exp.x0_test_red = to_matrix(
+                                project(
+                                    NumpyMatrixOperator(
+                                        exp.x0_test[:, np.newaxis], range_id="STATE"
+                                    ),
+                                    V,
+                                    None,
+                                )
+                            )
+                        else:
+                            X_train_red = to_matrix(
+                                project(
+                                    NumpyMatrixOperator(X_train, range_id="STATE"),
+                                    V,
+                                    None,
+                                )
+                            )
+                            # project initial condition
+                            exp.x0_red = to_matrix(
+                                project(
+                                    NumpyMatrixOperator(
+                                        exp.x0_test[:, np.newaxis], range_id="STATE"
+                                    ),
+                                    V,
+                                    None,
+                                )
+                            )
+                            exp.x0_test_red = to_matrix(
+                                project(
+                                    NumpyMatrixOperator(
+                                        exp.x0_test[:, np.newaxis], range_id="STATE"
+                                    ),
+                                    V,
+                                    None,
+                                )
+                            )
+                        pg_reductor = LTIPGReductor(exp.fom, V, V)
+                    Q_red = None
+                else:
+                    # standard form
+                    # Not Implemented. Petrov-Galerkin projection needed. Check literature.
+                    raise NotImplementedError(
+                        f"Reduced case for standard form not implemented yet."
+                    )
+                    if use_energy_weighted_POD:
+                        # Standard + ePOD
+                        pod_type = "ePOD"
+                        Q_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(
+                                    Q, source_id="STATE", range_id="STATE"
+                                ),
+                                V,
+                                V,
+                            )
+                        )
+                        X_train_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(X_train, range_id="STATE"), V, None
+                            )
+                        )
+                        pg_reductor = LTIPGReductor(exp.fom, VQ, V)
+
+                    else:
+                        # Standard + POD
+                        pod_type = "POD"
+                        V = NumpyVectorSpace.from_numpy(VV[:, :r].T, id="STATE")
+                        X_train_red = to_matrix(
+                            project(
+                                NumpyMatrixOperator(X_train, range_id="STATE"), V, None
+                            )
+                        )
+                        pg_reductor = LTIPGReductor(exp.fom, V, V)
+                    H_red = None
+
                 if use_energy_weighted_POD:
+                    # projection error for basis of size r
                     X_train_projected_r = (
                         np.transpose(V.to_numpy()) @ V.to_numpy() @ H @ X_train
                     )
@@ -184,80 +359,9 @@ def main():
                         f"Frobenius norm of the projection error using {r} singular values: {proj_error_train_fro_r}"
                     )
 
-                # Transofrm data
-                X_train_red = to_matrix(
-                    project(NumpyMatrixOperator(X_train, range_id="STATE"), V, None)
-                )
-                if use_Berlin:
-                    H_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(H, source_id="STATE", range_id="STATE"),
-                            V,
-                            V,
-                        )
-                    )
-                    Q_red = None
-                else:
-                    Q_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(Q, source_id="STATE", range_id="STATE"),
-                            V,
-                            V,
-                        )
-                    )
-                    H_red = None
-                # Transform data
-                if use_energy_weighted_POD:
-                    pod_type = "ePOD"
-                    VH = NumpyVectorSpace.from_numpy(VV[:, :r].T @ H, id="STATE")
-                    X_train_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(X_train, range_id="STATE"), VH, None
-                        )
-                    )
-                    # project initial condition
-                    exp.x0_test_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(
-                                exp.x0_test[:, np.newaxis], range_id="STATE"
-                            ),
-                            VH,
-                            None,
-                        )
-                    )
-                    H_red = np.eye(r)
-
-                    # POD with Q lhs
-                    pg_reductor = LTIPGReductor(exp.fom, VH, V)
-                    lti_pod = pg_reductor.reduce()
-                    lti_dict[pod_type] = lti_pod
-                else:
-                    pod_type = "POD"
-                    X_train_red = to_matrix(
-                        project(NumpyMatrixOperator(X_train, range_id="STATE"), V, None)
-                    )
-                    # project initial condition
-                    exp.x0_test_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(
-                                exp.x0_test[:, np.newaxis], range_id="STATE"
-                            ),
-                            V,
-                            None,
-                        )
-                    )
-                    H_red = to_matrix(
-                        project(
-                            NumpyMatrixOperator(H, source_id="STATE", range_id="STATE"),
-                            V,
-                            V,
-                        )
-                    )
-
-                    # POD with Q lhs
-                    pg_reductor = LTIPGReductor(exp.fom, V, V)
-                    lti_pod = pg_reductor.reduce()
-                    lti_dict[pod_type] = lti_pod
+                # POD system
+                lti_pod = pg_reductor.reduce()
+                lti_dict[pod_type] = lti_pod
 
                 # double check if intrusive system can be transformed through Riccati
                 logging.info(
@@ -282,6 +386,8 @@ def main():
                             "gillis_options": exp.gillis_options,
                             "constraint_type": exp.constraint_type,
                         }
+                    elif isinstance(method, PHDMDHMethod):
+                        add_method_inputs = {"ordering": exp.ordering}
                     else:
                         add_method_inputs = {}
 
@@ -298,89 +404,100 @@ def main():
                     )
                     lti_dict[method.name] = lti
 
-                    # compare MAC
-                    save_name_mac = os.path.join(
-                        config.plots_path,
-                        f"MAC_r{r}_{pod_type}_{method.name}_noise{noise}.png",
-                    )
-                    title_name_mac = f"MAC_r_{r}_{pod_type}_{method.name}"
-                    compare_eigenmodes(
-                        lti_pod, lti, save_name=save_name_mac, title=title_name_mac
-                    )
+                #     # compare MAC
+                #     save_name_mac = os.path.join(
+                #         config.plots_path,
+                #         f"MAC_r{r}_{pod_type}_{method.name}_noise{noise}.png",
+                #     )
+                #     title_name_mac = f"MAC_r_{r}_{pod_type}_{method.name}"
+                #     compare_eigenmodes(
+                #         lti_pod, lti, save_name=save_name_mac, title=title_name_mac
+                #     )
 
-                    U_red, X_red, Y_red = sim(
-                        lti_dict[method.name],
-                        exp.u,
-                        exp.T,
-                        x0=None,
-                        method=exp.time_stepper,
-                    )
-                    plt.figure()
-                    plt.plot(np.transpose(Y_train), label="y")
-                    plt.plot(np.transpose(Y_red), label="y_red")
-                    plt.title(f"MSD model with train data for {method.name}, r={r}")
-                    plt.legend()
-                    plt.savefig(
-                        os.path.join(
-                            config.plots_path,
-                            f"train_y_r{r}_{pod_type}_{method.name}_noise{noise}.png",
-                        )
-                    )
-                    plt.close()
+                #     U_red, X_red, Y_red = sim(
+                #         lti_dict[method.name],
+                #         exp.u,
+                #         exp.T,
+                #         x0=None,
+                #         method=exp.time_stepper,
+                #     )
+                #     plt.figure()
+                #     plt.plot(np.transpose(Y_train), label="y")
+                #     plt.plot(np.transpose(Y_red), label="y_red")
+                #     plt.title(f"MSD model with train data for {method.name}, r={r}")
+                #     plt.legend()
+                #     plt.savefig(
+                #         os.path.join(
+                #             config.plots_path,
+                #             f"train_y_r{r}_{pod_type}_{method.name}_noise{noise}.png",
+                #         )
+                #     )
+                #     plt.close()
 
-                    U_test_red, X_test_red, Y_test_red = sim(
-                        lti_dict[method.name],
-                        exp.u_test,
-                        exp.T_test,
-                        x0=exp.x0_test_red,
-                        method=exp.time_stepper,
-                    )
-                    plt.figure()
-                    plt.plot(np.transpose(Y_test), label="y")
-                    plt.plot(np.transpose(Y_test_red), label="y_red")
-                    plt.title(f"MSD model with test data for {method.name}, r={r}")
-                    plt.legend()
-                    plt.savefig(
-                        (
-                            os.path.join(
-                                config.plots_path,
-                                f"test_y_r{r}_{pod_type}_{method.name}_noise{noise}.png",
-                            )
-                        )
-                    )
+                #     U_test_red, X_test_red, Y_test_red = sim(
+                #         lti_dict[method.name],
+                #         exp.u_test,
+                #         exp.T_test,
+                #         x0=exp.x0_test_red,
+                #         method=exp.time_stepper,
+                #     )
+                #     plt.figure()
+                #     plt.plot(np.transpose(Y_test), label="y")
+                #     plt.plot(np.transpose(Y_test_red), label="y_red")
+                #     plt.title(f"MSD model with test data for {method.name}, r={r}")
+                #     plt.legend()
+                #     plt.savefig(
+                #         (
+                #             os.path.join(
+                #                 config.plots_path,
+                #                 f"test_y_r{r}_{pod_type}_{method.name}_noise{noise}.png",
+                #             )
+                #         )
+                #     )
 
-                    X_test_red_rec = V.to_numpy().T @ X_test_red
-                    X_error_abs = np.abs(X_test - X_test_red_rec)
-                    X_error_rel = (
-                        np.linalg.norm(X_error_abs, axis=0)
-                        / np.linalg.norm(X_test, axis=0).mean()
-                    )
-                    # output error
-                    Y_error_abs = np.abs(Y_test - Y_test_red)
-                    Y_error_rel = Y_error_abs / Y_test.mean()
-                    error_dict = {
-                        "X_error_abs": X_error_abs,
-                        "X_error_rel": X_error_rel,
-                        "Y_error_abs": Y_error_abs,
-                        "Y_error_rel": Y_error_rel,
-                        "method": method.name,
-                        "r": r,
-                        "noise": noise,
-                        "use_energy_weighted_POD": use_energy_weighted_POD,
-                    }
-                    error_list.append(error_dict)
-                    plt.figure()
-                    plt.plot(np.transpose(X_error_rel), label="e_rel")
-                    plt.title(f"MSD model, rel. state error 2-norm, r={r}")
-                    plt.legend()
-                    plt.savefig(
-                        (
-                            os.path.join(
-                                config.plots_path,
-                                f"error_rel_r{r}_{pod_type}_{method.name}_noise{noise}.png",
-                            )
-                        )
-                    )
+                #     X_test_red_rec = V.to_numpy().T @ X_test_red
+                #     X_error_abs = np.abs(X_test - X_test_red_rec)
+                #     X_error_rel = (
+                #         np.linalg.norm(X_error_abs, axis=0)
+                #         / np.linalg.norm(X_test, axis=0).mean()
+                #     )
+                #     # output error
+                #     Y_error_abs = np.abs(Y_test - Y_test_red)
+                #     Y_error_rel = Y_error_abs / Y_test.mean()
+                #     error_dict = {
+                #         "X_error_abs": X_error_abs,
+                #         "X_error_rel": X_error_rel,
+                #         "Y_error_abs": Y_error_abs,
+                #         "Y_error_rel": Y_error_rel,
+                #         "method": method.name,
+                #         "r": r,
+                #         "noise": noise,
+                #         "use_energy_weighted_POD": use_energy_weighted_POD,
+                #     }
+                #     error_list.append(error_dict)
+                #     plt.figure()
+                #     plt.plot(np.transpose(X_error_rel), label="e_rel")
+                #     plt.title(f"MSD model, rel. state error 2-norm, r={r}")
+                #     plt.legend()
+                #     plt.savefig(
+                #         (
+                #             os.path.join(
+                #                 config.plots_path,
+                #                 f"error_rel_r{r}_{pod_type}_{method.name}_noise{noise}.png",
+                #             )
+                #         )
+                #     )
+
+                # get results
+                results = Result(
+                    lti_dict,
+                    exp,
+                    data_train,
+                    data_test,
+                    save_path=config.plots_path,
+                    V=V,
+                )
+                results.get_all_results()
 
                 # create list of lti_dicts to calculate eigenvalues
                 lti_dict_list.append(lti_dict)
